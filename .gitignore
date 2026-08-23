@@ -1,0 +1,196 @@
+# =====================================================
+#  C++ 构建产物
+# =====================================================
+# CMake / Make / Ninja
+build/
+build-*/
+out/
+cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+Testing/
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+_deps/
+
+# Make / 自定义脚本产物
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+*.out
+*.app
+*.bin
+*.elf
+*.map
+*.dep
+*.d
+*.gcno
+*.gcda
+*.gcov
+
+# GCC / Clang
+*.gch
+
+# Ninja
+.ninja_deps
+.ninja_log
+
+# sccache / ccache
+.sccache/
+.ccache/
+
+
+# =====================================================
+#  媒体文件（默认不上传）
+# =====================================================
+# 视频
+*.mp4
+*.m4v
+*.mov
+*.avi
+*.mkv
+*.webm
+*.flv
+*.wmv
+*.3gp
+*.ts
+*.m2ts
+*.mts
+*.h264
+*.h265
+*.hevc
+*.yuv
+*.nv12
+*.rgb
+*.bgra
+*.raw
+
+# 音频
+*.wav
+*.mp3
+*.m4a
+*.aac
+*.flac
+*.ogg
+*.opus
+*.pcm
+
+# 图片
+*.jpg
+*.jpeg
+*.png
+*.bmp
+*.gif
+*.webp
+*.tiff
+*.tif
+*.heic
+*.heif
+*.ppm
+
+# 字幕 / 字幕流
+*.srt
+*.vtt
+*.ass
+
+# =====================================================
+#  AI 模型权重（不提交）
+# =====================================================
+*.pt
+*.pth
+*.onnx
+*.hef
+*.tflite
+*.engine
+*.plan
+*.trt
+*.caffemodel
+*.prototxt
+*.weights
+*.h5
+*.hdf5
+*.safetensors
+
+# =====================================================
+#  Python
+# =====================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+.Python
+.venv/
+venv/
+env/
+ENV/
+.python-version
+
+pip-log.txt
+pip-delete-this-directory.txt
+
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+
+# 打包
+*.egg-info/
+*.egg
+dist/
+build/*  # 与 C++ 重复，这里保留防止顺序问题
+*.whl
+
+# Jupyter
+.ipynb_checkpoints
+
+# =====================================================
+#  IDE / 编辑器
+# =====================================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Cursor
+.cursor/settings.json
+.cursor/workspaces/
+
+# =====================================================
+#  日志 / 临时 / 系统
+# =====================================================
+*.log
+*.tmp
+*.bak
+*.swp
+*.orig
+core
+core.*
+.vs/
+[Bb]in/
+[Oo]bj/
+
+# =====================================================
+#  示例工程例外（按需取消注释）
+# =====================================================
+# 如果某些示例**必须**提交预置视频/音频演示文件，请在该目录
+# 下建立 `.gitignore` 并使用反规则，例如：
+#
+#   !demo.mp4
+#
+# 然后把对应的 `demo.mp4` 加入 git 即可。
