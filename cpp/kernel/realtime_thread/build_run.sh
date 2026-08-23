@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-EXE_NAME="GstMp4Player"
+EXE_NAME="RealtimeThread"
 BUILD_TYPE="${BUILD_TYPE:-Release}"
 JOBS="$(nproc 2>/dev/null || echo 2)"
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -33,12 +33,6 @@ require_cmd() {
 require_cmd cmake cmake
 require_cmd make make
 
-if ! pkg-config --exists gstreamer-1.0; then
-    echo "[build_run] 未找到 gstreamer-1.0"
-    echo "  安装参考:  sudo apt install libgstreamer1.0-dev gstreamer1.0-plugins-base gstreamer1.0-plugins-good"
-    exit 127
-fi
-
 cmake -S "${SRC_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" \
     | tee "${LOG_DIR}/configure.log"
 cmake --build "${BUILD_DIR}" -j "${JOBS}" \
@@ -51,23 +45,11 @@ EXE="${BUILD_DIR}/${EXE_NAME}"
 
 cd "${SRC_DIR}"
 
-# 默认 mp4 路径可通过第一个参数覆盖
-VIDEO_PATH="${1:-}"
-if [[ -z "${VIDEO_PATH}" ]]; then
-    # 兼容历史 README：默认找 /home/moyuping/work/tmp/output_fixed.mp4
-    for cand in \
-        "$HOME/work/tmp/output_fixed.mp4" \
-        "/tmp/output_fixed.mp4"; do
-        if [[ -f "${cand}" ]]; then
-            VIDEO_PATH="${cand}"
-            break
-        fi
-    done
-fi
-if [[ -z "${VIDEO_PATH}" || ! -f "${VIDEO_PATH}" ]]; then
-    echo "[build_run] 未指定 mp4 文件或文件不存在，请将视频路径作为参数："
-    echo "          $0 /path/to/your.mp4"
-    exit 1
+# 实时调度必须 sudo，否则 SCHED_FIFO / mlockall 会失败
+if [[ ${EUID} -ne 0 ]]; then
+    echo "[build_run] RealtimeThread 需要 SCHED_FIFO / mlockall，必须以 root 运行"
+    echo "  自动切到:  sudo ${EXE} $*"
+    exec sudo "${EXE}" "$@"
 fi
 
-exec "${EXE}" "${VIDEO_PATH}" "$@"
+exec "${EXE}" "$@"

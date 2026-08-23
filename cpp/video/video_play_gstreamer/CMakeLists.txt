@@ -1,32 +1,31 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.16)
+project(GstMp4Player VERSION 1.0.0 LANGUAGES C CXX)
 
-# 定义项目名称
-project(GstMp4Player)
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
+endif()
 
-# 强制使用 C++11 标准 (因为代码中用到了 std::thread)
-set(CMAKE_CXX_STANDARD 11)
-set(CMAKE_CXX_STANDARD_REQUIRED True)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
-# 查找 PkgConfig 工具
+# 依赖
 find_package(PkgConfig REQUIRED)
-
-# 使用 pkg-config 查找 gstreamer-1.0 库
 pkg_check_modules(GST REQUIRED gstreamer-1.0)
 
-# 查找系统的线程库 (pthread)
 find_package(Threads REQUIRED)
 
-# 添加可执行文件目标
-add_executable(player player.cpp)
+add_executable(GstMp4Player Main.cpp)
 
-# 包含 GStreamer 的头文件目录
-target_include_directories(player PRIVATE ${GST_INCLUDE_DIRS})
+target_include_directories(GstMp4Player PRIVATE ${GST_INCLUDE_DIRS})
+target_link_directories(GstMp4Player PRIVATE ${GST_LIBRARY_DIRS})
 
-# 包含 GStreamer 的链接库目录
-target_link_directories(player PRIVATE ${GST_LIBRARY_DIRS})
+target_link_libraries(GstMp4Player PRIVATE
+    ${GST_LIBRARIES}
+    Threads::Threads
+)
 
-# 链接 GStreamer 核心库 和 线程库
-target_link_libraries(player PRIVATE ${GST_LIBRARIES} Threads::Threads)
-
-# 附加 GStreamer 相关的编译选项
-target_compile_options(player PRIVATE ${GST_CFLAGS})
+target_compile_options(GstMp4Player PRIVATE
+    ${GST_CFLAGS}
+    -Wall -Wextra -Wpedantic
+)
