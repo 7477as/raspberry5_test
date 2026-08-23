@@ -1,0 +1,133 @@
+---
+description: README.md 写作规范 - 每个功能目录必须有 README，章节结构、命令示例、命名约定。
+globs: ["**/README.md"]
+alwaysApply: true
+---
+
+# README.md 写作规范（强制）
+
+> 每个功能子目录（`cpp/<topic>/<feature>/` 与 `python/<topic>/<feature>/`）都必须有自己的 `README.md`。Cursor 在创建或修改功能目录时必须同步生成 / 更新 README。
+
+## 1. 文件命名
+
+- 统一 `README.md`（**全大写**）
+- 不要写成 `Readme.md` / `readme.md` / `readme.MD` / `README.txt`
+- 不要写成 `README.mk`（`.mk` 是 Makefile 后缀，与文档语义不符）
+
+## 2. 必填章节（顺序固定）
+
+```markdown
+# <功能名>
+
+> 一句话说明这个示例的功能。
+
+## 功能简介
+
+用一段话说明：
+- 这个示例解决什么问题
+- 与同类方案（裸 OpenCV / rpicam-apps / GStreamer / MediaMTX 等）的取舍
+- 典型应用场景
+
+## 依赖 / 环境
+
+- 硬件：树莓派 5 + IMX477 摄像头（或注明具体型号）
+- 系统：Raspberry Pi OS Bookworm 64-bit
+- 系统库：`sudo apt install libopencv-dev`
+- Python 包：见 `requirements.txt`
+- 模型 / 资源：如有，给出下载路径或脚本
+
+## 构建与运行
+
+### C++ 示例
+```bash
+cd cpp/<topic>/<feature>
+chmod +x build_run.sh
+./build_run.sh
+```
+
+### Python 示例
+```bash
+cd python/<topic>/<feature>
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+python3 main.py
+```
+
+## 关键参数 / 配置
+
+| 参数 / 宏 / 环境变量 | 默认值 | 说明 |
+| :--- | :--- | :--- |
+| `BUFFER_FRAMES` | `5` | 播放缓冲深度 |
+| `USE_H265` | `0` | 0=H.264, 1=H.265 |
+| `MODEL_PATH` | `./config/yolov8n.pt` | 模型权重路径 |
+
+## 已知问题 / 注意事项
+
+- 在 Pi 4 上 CPU 占用偏高，建议 Pi 5
+- 需要先 `sudo raspi-config` 启用摄像头
+- ALSA 设备名在不同 USB 声卡下会变
+
+## 参考资料
+
+- [libcamera 官方文档](https://libcamera.org/)
+- 相关 issue 链接
+```
+
+## 3. 写作要求
+
+### 3.1 命令示例
+
+- **必须给可直接复制粘贴的 shell 块**，使用三反引号 + `bash` 语言标识符
+- 使用 `<占位符>` 标注需要替换的路径 / IP / 端口：`<树莓派IP>`、`<MODEL_PATH>`、`<PORT>`
+- 标注完整的子命令：
+
+  ```bash
+  ./build_run.sh          # 配置 + 构建 + 运行（默认）
+  ./build_run.sh build    # 仅构建
+  ./build_run.sh clean    # 清理 build 目录
+  ./build_run.sh rebuild  # 清理后重新构建
+  NORUN=1 ./build_run.sh  # 仅构建不运行
+  BUILD_TYPE=Debug ./build_run.sh
+  ```
+
+### 3.2 表格 / 列表
+
+- 关键参数**用 Markdown 表格**展示，列：参数名 / 默认值 / 说明
+- 多步骤命令用编号列表
+- 注意事项用无序列表
+
+### 3.3 资源引用
+
+- 截图 / 视频 / GIF 放该目录下的 `assets/` 子目录
+- README 中以**相对路径**引用：`![描述](./assets/preview.png)`
+
+### 3.4 风格
+
+- 中文为主，专有名词 / 命令保持英文
+- 一段话不超过 4 行（移动端可读）
+- 不要堆砌"高级感"形容词
+
+## 4. 禁止的反模式
+
+- ❌ README 只放一句 `// TODO`
+- ❌ 用代码块代替 Markdown 标题 / 列表（影响可读性）
+- ❌ 复制粘贴的 AI 模板味道段落
+- ❌ 截图外链（必须本地 assets/）
+- ❌ 把构建命令写成 `cmake -DCMAKE_BUILD_TYPE=Release && make -j4 && sudo make install`
+- ❌ 省略依赖章节
+
+## 5. Cursor 自检清单（生成 / 修改 README 后）
+
+- [ ] 标题是 `# <功能名>` 形式
+- [ ] 6 个必填章节齐全且顺序正确
+- [ ] 命令示例使用 `<占位符>` 而非硬编码 IP / 路径
+- [ ] 关键参数使用表格
+- [ ] 没有 `TODO` / `占位` 残留
+- [ ] 与同目录其它文件（`CMakeLists.txt`、`build_run.sh`、`main.py`）的命令一致
+
+## 6. 模板
+
+- C++ 模板：`cpp/_template/README.md`
+- Python 模板：`python/_template/README.md`
+
+Cursor 在生成新 README 时，**必须先 Read 对应模板**，再按本规范填充。

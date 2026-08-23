@@ -1,0 +1,122 @@
+---
+description: C++ 命名 / 注释 / 构建规范。本目录的 C++ 代码必须满足：标准 C++ 命名（PascalCase 文件/类/函数，camelCase 局部变量，m_ 前缀成员变量）、关键注释、CMake + build_run.sh。生成或修改 `cpp/**/*.cpp`、`cpp/**/*.h`、`cpp/**/CMakeLists.txt`、`cpp/**/build_run.sh` 时强制应用。
+globs: ["cpp/**/*.cpp", "cpp/**/*.h", "cpp/**/*.hpp", "cpp/**/CMakeLists.txt", "cpp/**/build_run.sh"]
+alwaysApply: true
+---
+
+# C++ 编码规范（强制）
+
+## 1. 命名
+
+### 文件 / 类 / 函数
+
+| 类型 | 风格 | 示例 |
+| :--- | :--- | :--- |
+| 文件 | `PascalCase.cpp` / `PascalCase.h` | `CameraPreview.cpp`、`FrameBuffer.h` |
+| 类 / 结构体 | `PascalCase` | `CameraPreview`、`VideoFrame` |
+| 函数 | `PascalCase`（含公有 / 私有） | `OpenCamera()`、`DecodeFrame()` |
+| 类型别名 | `PascalCase` | `using FrameCallback = ...;` |
+| 枚举类型 / 值 | `PascalCase` | `enum class Codec { H264, H265 };` |
+
+> **例外**：第三方 / 公共域头（如 `minimp4.h`）保留原名。
+>
+> **入口文件**：每个可执行目标的主入口统一叫 `Main.cpp`，不加 `App.cpp` / `entry.cpp` 等别名。
+
+### 变量
+
+| 类型 | 风格 | 示例 |
+| :--- | :--- | :--- |
+| 私有成员 | `mCamelCase`（强制 `m` 前缀） | `mCodecCtx`、`mPipe` |
+| 公有 / 保护成员 | `CamelCase` 或 `mCamelCase` | `IsPaused` 或 `mIsPaused` |
+| 局部变量 / 参数 | `camelCase`（必须有意义，无意义名 `i`/`tmp` 禁止） | `frameCount`、`targetWidth` |
+| 全局变量 | 禁止；如必须，加 `g` 前缀 | `gCache` |
+| `const` / `constexpr` 常量 | `kCamelCase` 或 `UPPER_SNAKE` | `kMaxFrames` |
+| 编译期宏 | `UPPER_SNAKE` | `USE_H265`、`BUFFER_FRAMES` |
+
+### 类成员摆放顺序
+
+```
+public:      构造 / 析构 / 公有函数 / 公有数据
+private:     私有函数
+             私有成员变量（m 前缀）
+```
+
+### 头文件
+
+- `#pragma once`（**禁止** `#ifndef __FOO_H__` 守卫）
+- 头文件中**禁止** `using namespace std;`
+
+## 2. 注释
+
+**只保留关键注释**。一眼能看懂的不要写注释。
+
+**必须写注释**的情形：
+- 反直觉的设计取舍（如 `max-buffers=0 + drop=false` 看似多余但有原因）
+- 第三方 API / ABI 兼容分支（如 FFmpeg 新旧 `channel_layout` 的 `#if`）
+- 业务上有意义的参数档位说明（如 `BUFFER_FRAMES` 各档含义）
+- TODO / FIXME
+- 头文件 Doxygen 风格的类级 doc（一句话讲清职责）
+
+**禁止写**：
+- 把代码翻译成中文 / 英文的逐行注释
+- 区块分隔符 / 分章标题（`// ======`、`// [Step 1]`、`// 配置区 1`、`// 主入口`）
+- 解释"这段代码做了什么"的描述性注释（如 `// 读取一帧`、`// 状态机：存货`）
+- 解释明显类型 / 函数名（`// 帧计数`、`// 字符串拼接`）
+- 修改过程、改写记录、原作者说明
+
+**关键注释也要短**：能 1 行说明白的不写 3 行。
+
+## 3. 构建系统
+
+### 必须
+
+- 每个 C++ 功能子目录都有 `CMakeLists.txt`、`build_run.sh`、`README.md`
+- `cmake_minimum_required(VERSION 3.16)`
+- `project(<Name> VERSION x.y.z LANGUAGES C CXX)`
+- `CMAKE_CXX_STANDARD 17`、`CMAKE_CXX_EXTENSIONS OFF`
+- 默认 `Release`（未指定时）：
+
+  ```cmake
+  if(NOT CMAKE_BUILD_TYPE)
+      set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
+  endif()
+  ```
+
+- 依赖走 `find_package` / `pkg_check_modules`
+- 编译选项：`target_compile_options(<tgt> PRIVATE -Wall -Wextra -Wpedantic)`
+- 链接：`target_link_libraries(<tgt> PRIVATE ...)`，不用全局变量
+
+### 禁止
+
+- 裸 `Makefile` / 裸 `g++ xxx -o xxx`
+- `qmake` / `autotools` / `meson` / `bazel`
+- 硬编码 `/usr/include/...`、`/home/pi/...` 等绝对路径
+- 构建产物写到源码目录（统一进 `build/`）
+
+### `build_run.sh` 必备
+
+- `#!/usr/bin/env bash`、`set -euo pipefail`
+- 子命令：`run`（默认）/ `build` / `clean` / `rebuild`
+- 环境变量：`BUILD_TYPE`、`NORUN=1`
+- 构建产物统一进 `<功能目录>/build/`
+- 依赖检测：`command -v`、`pkg-config --exists`，失败时给出 `sudo apt install ...` 提示并退出 127
+- **不要**在脚本里自动 `sudo apt install`
+- 可执行位（`chmod +x build_run.sh`）
+- 需要 root 的项目（如实时调度）由脚本自动 `sudo` 跳转
+
+## 4. 代码组织
+
+- 入口：`Main.cpp`（统一名称）
+- 类实现文件：`ClassName.cpp`
+- 类头文件：`ClassName.h`
+- 资源 / 模型文件**禁止内联到源码**
+- RAII 优先：`std::ifstream`、FFmpeg context、socket 等不要手动管理
+- 错误处理：能返回值就返回，能抛异常就抛；不要 `abort()`
+- 局部允许 `using namespace std;`，头文件**禁止**
+- 第三方头（如 `minimp4.h`）保留原名
+
+## 5. README
+
+- 不含修改过程、改写历史、对原代码的解释
+- 包含：项目目标、目录结构、依赖与安装、构建与运行、参数表、注意事项
+- 关键步骤代码块用 ```bash

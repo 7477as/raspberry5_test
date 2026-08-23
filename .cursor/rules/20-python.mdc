@@ -1,0 +1,160 @@
+---
+description: Python 专属规范 - 每个功能目录必须 main.py + requirements.txt + README.md。生成 Python 代码前必读。
+globs: ["python/**/*.py", "python/**/requirements.txt", "python/**/pyproject.toml"]
+alwaysApply: true
+---
+
+# Python 代码生成规范（强制）
+
+> 本规则对 `python/` 目录下所有 Python 代码生效。Cursor 在生成 / 修改任何 Python 文件时必须遵守。
+
+## 1. 解释器与运行
+
+- **统一使用 `python3`**，禁止 `python` / `python2`
+- 主入口文件名：**`main.py`**（或 `run.py`），与目录同名（小写）
+- `python3 main.py` 必须能直接跑通（配合 `requirements.txt`）
+- 推荐使用 venv：`python3 -m venv .venv && source .venv/bin/activate`
+
+## 2. 每个功能必须有 `requirements.txt`
+
+- 固定主版本号，限制次版本兼容范围：
+
+  ```text
+  opencv-python>=4.8,<5
+  numpy>=1.26,<2
+  ultralytics>=8.2,<9
+  ```
+
+- 禁止 `pip install xxx` 写死在脚本里
+- 禁止写 `*` / 无版本约束
+- 不需要依赖时也要建空文件 + 注释
+
+## 3. 代码风格
+
+- **PEP 8**
+- 行宽 100（与仓库约定一致）
+- 导入顺序：标准库 → 第三方 → 本地，**用空行分隔**
+- 公共函数**必须**加类型注解：`def func(x: int) -> str:`
+- docstring 使用 **Google 风格**：
+
+  ```python
+  def transcribe(audio_path: Path) -> str:
+      """Run ASR on an audio file.
+
+      Args:
+          audio_path: 16 kHz mono PCM wav file.
+
+      Returns:
+          Recognized text.
+      """
+  ```
+
+- 路径统一用 `pathlib.Path`，**禁止 `os.path.join` + 字符串拼接**
+- 日志统一用 `logging` 模块，**禁止 `print()` 散布调试信息**（除非是 CLI demo 主输出）
+
+## 4. 错误处理
+
+- 不要 `except: pass` / `except Exception: pass` 吞错
+- 顶层捕获要 `raise` 或 `logging.exception(...)` 后给可读错误
+- 硬件 / 系统调用出错要抛异常并说明可执行的修复命令
+
+```python
+try:
+    cap = cv2.VideoCapture(0)
+except Exception as e:
+    raise RuntimeError(
+        "无法打开摄像头 /dev/video0；请检查 `sudo raspi-config` 是否启用摄像头"
+    ) from e
+```
+
+## 5. 禁止的反模式
+
+- ❌ 脚本中 `os.system('sudo ...')`
+- ❌ 硬编码 `/home/pi/...` 路径，使用 `Path(__file__).resolve().parent`
+- ❌ 提交模型权重（`*.pt` / `*.onnx` / `*.hef`）进仓库
+- ❌ `requirements.txt` 里写 `package>=999`
+- ❌ 主入口没有 `if __name__ == "__main__":` 守卫
+- ❌ 全局可变状态 + 函数副作用
+
+## 6. 标准目录结构
+
+```
+python/<topic>/<feature>/
+├── main.py                 ← 必需
+├── requirements.txt        ← 必需
+├── README.md               ← 必需（见 30-readme.mdc）
+├── <feature>/              ← 可选：本地包
+│   ├── __init__.py
+│   └── ...
+├── tests/                  ← 可选
+├── config/                 ← 可选：配置 / 模型占位
+│   └── .gitkeep
+└── assets/                 ← 可选
+```
+
+## 7. main.py 骨架（生成时按需填参）
+
+```python
+#!/usr/bin/env python3
+"""<一句话功能说明>。
+
+详细说明...
+"""
+from __future__ import annotations
+
+import argparse
+import logging
+import sys
+from pathlib import Path
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=Path(__file__).resolve().parent / "config",
+        help="配置文件 / 资源目录",
+    )
+    parser.add_argument("--verbose", "-v", action="store_true")
+    return parser.parse_args()
+
+
+def setup_logging(verbose: bool = False) -> None:
+    logging.basicConfig(
+        level=logging.DEBUG if verbose else logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+
+
+def main() -> int:
+    args = parse_args()
+    setup_logging(args.verbose)
+    log = logging.getLogger("<feature>")
+    log.info("Hello from <feature>!")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+```
+
+## 8. Cursor 生成 Python 代码时的自检清单
+
+- [ ] 目录是否新增了 `main.py`？
+- [ ] 目录是否新增了 `requirements.txt`？
+- [ ] 是否使用 `pathlib` 而非 `os.path`？
+- [ ] 是否使用 `logging` 而非 `print`？
+- [ ] 公共函数是否带类型注解？
+- [ ] 是否吞错（`except: pass`）？
+- [ ] 是否硬编码了绝对路径？
+- [ ] 是否引入未在 `requirements.txt` 声明的包？
+
+## 9. 新建 Python 工程的最小工作流
+
+Cursor 在用户说"新建一个 Python 示例 / 模块"时：
+
+1. **确认目标目录**：`python/<topic>/<feature>/`
+2. **读取模板**：`Read` `python/_template/main.py` 和 `python/_template/requirements.txt`
+3. **生成三件套**：基于模板改写 `main.py`、`requirements.txt`、`README.md`
+4. **不主动运行**：`pip install` / `python3 main.py` 需用户明确触发
