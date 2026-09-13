@@ -1,18 +1,16 @@
-/* main - luna 云台相机 demo 入口 */
-
 #define _POSIX_C_SOURCE 200809L
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 #include <signal.h>
 #include <time.h>
-#include <unistd.h>
 
+#include "stdf_define.h"
 #include "stdf_mvc.h"
 #include "stdf_app.h"
 
-static volatile int g_running = 1;
+#define DUMP_INTERVAL_MS               (5000u)
+#define LOOP_PERIOD_MS                 (10u)
+
+static volatile sig_atomic_t g_running = 1;
 
 static void on_sigint(int sig)
 {
@@ -27,61 +25,41 @@ static uint64_t now_ms(void)
     return (uint64_t)(ts.tv_sec * 1000u + ts.tv_nsec / 1000000u);
 }
 
-static void on_button_inject(void *user_data, const stdf_mvc_signal_data_t *data)
+int main(void)
 {
-    (void)user_data;
-    (void)data;
-}
-
-int main(int argc, char *argv[])
-{
-    (void)argc;
-    (void)argv;
-
     signal(SIGINT, on_sigint);
     signal(SIGTERM, on_sigint);
 
-    printf("[MAIN] luna gimbal camera demo (stdf_mvc)\n");
-
     if (stdf_mvc_init() != 0) {
-        fprintf(stderr, "[MAIN] stdf_mvc init failed\n");
+        STDF_LOG_E("%s", "stdf_mvc init failed");
         return 1;
     }
     if (stdf_app_init() != 0) {
-        fprintf(stderr, "[MAIN] stdf_app init failed\n");
+        STDF_LOG_E("%s", "stdf_app init failed");
         return 1;
     }
 
-    stdf_mvc_subject_subscribe(STDF_MVC_SUBJECT_BUTTON_PRESSED,
-                               on_button_inject, NULL);
+    STDF_LOG_I("%s", "running... (Ctrl+C to exit)");
 
-    printf("[MAIN] running... (Ctrl+C to exit)\n\n");
-
-    uint64_t start_ms   = now_ms();
-    uint64_t last_dump  = start_ms;
-    uint32_t loop_count = 0;
-
+    uint64_t last_dump = now_ms();
     while (g_running) {
         stdf_app_tick();
 
-        loop_count++;
-        uint64_t elapsed = now_ms() - start_ms;
-        if ((elapsed - (last_dump - start_ms)) >= 5000) {
-            printf("\n[MAIN] === dump @ %lu ms, loop=%u ===\n",
-                   (unsigned long)elapsed, (unsigned)loop_count);
+        uint64_t now = now_ms();
+        if (now - last_dump >= DUMP_INTERVAL_MS) {
+            STDF_LOG_I("=== dump @ %lu ms ===", (unsigned long)now);
             stdf_mvc_dump_subjects();
-            printf("[MAIN] pool: %u/%u used\n",
-                   (unsigned)stdf_mvc_get_pool_used(),
-                   (unsigned)stdf_mvc_get_pool_used() +
-                   (unsigned)stdf_mvc_get_pool_free());
-            last_dump = now_ms();
+            STDF_LOG_I("pool: %u/%u used",
+                       (unsigned)stdf_mvc_get_pool_used(),
+                       (unsigned)(stdf_mvc_get_pool_used() + stdf_mvc_get_pool_free()));
+            last_dump = now;
         }
 
-        struct timespec sleep_ts = { .tv_sec = 0, .tv_nsec = 10 * 1000 * 1000 };
+        struct timespec sleep_ts = { .tv_sec = 0, .tv_nsec = LOOP_PERIOD_MS * 1000000u };
         nanosleep(&sleep_ts, NULL);
     }
 
-    printf("\n[MAIN] shutting down...\n");
-    stdf_mvc_cleanup();
+    STDF_LOG_I("%s", "shutting down...");
+    stdf_mvc_deinit();
     return 0;
 }
