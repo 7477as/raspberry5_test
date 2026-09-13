@@ -1,0 +1,215 @@
+---
+description: C 语言编码规范。本目录的 C 代码必须满足：snake_case 文件/函数/变量、函数实现内不允许写注释（自解释）、头文件公共 API 允许简短 doc、CMake + build_run.sh、入口 main.c。生成或修改 `c/**/*.c`、`c/**/*.h`、`c/**/CMakeLists.txt`、`c/**/build_run.sh` 时强制应用。
+globs: ["c/**/*.c", "c/**/*.h", "c/**/CMakeLists.txt", "c/**/build_run.sh"]
+alwaysApply: true
+---
+
+# C 语言编码规范（强制）
+
+> 核心原则：**代码即文档**。函数名、变量名、参数名要自描述；函数体内禁止任何注释（哪怕 `// 初始化`、`// 循环`）。
+
+## 1. 命名
+
+### 文件 / 函数 / 变量
+
+| 类型 | 风格 | 示例 |
+| :--- | :--- | :--- |
+| 文件 | `snake_case.c` / `snake_case.h` | `frame_buffer.c`、`frame_buffer.h` |
+| 函数 | `snake_case` | `open_camera()`、`decode_frame()` |
+| 局部变量 / 参数 | `snake_case`（必须有意义） | `frame_count`、`target_width` |
+| 结构体 / 枚举 tag | `snake_case_t`（强制 `_t` 后缀） | `video_frame_t`、`codec_t` |
+| 全局变量 | 禁止；如必须，加 `g_` 前缀 | `g_cache` |
+| `const` / `#define` 常量 | `UPPER_SNAKE` | `BUFFER_FRAMES`、`MAX_WIDTH` |
+| 宏函数 | `UPPER_SNAKE` | `MIN(a, b)`、`ARRAY_SIZE(x)` |
+
+### 函数命名约定（强化自描述）
+
+| 命名模式 | 含义 | 示例 |
+| :--- | :--- | :--- |
+| `verb_object()` | 主动作 | `open_camera()`、`start_capture()` |
+| `get_xxx()` / `set_xxx()` | 简单取值 / 赋值 | `get_frame_count()` |
+| `is_xxx()` / `has_xxx()` | 布尔判断 | `is_paused()`、`has_error()` |
+| `try_xxx()` | 可能失败、返回 bool | `try_lock_mutex()` |
+| `parse_xxx()` / `format_xxx()` | 数据转换 | `parse_resolution()` |
+| `xxx_init()` / `xxx_cleanup()` | 资源配对 | `camera_init()` / `camera_cleanup()` |
+| `xxx_create()` / `xxx_destroy()` | 堆对象配对 | `frame_create()` / `frame_destroy()` |
+
+**禁止**：
+- 模糊动词：`handle_xxx()`、`process_xxx()`、`do_xxx()`、`manage_xxx()`（除非是 `process_video_frame` 这种已经把对象说清楚的）
+- 匈牙利命名（`iCount`、`szName`、`pBuffer`）
+- 缩写到不可读：`cam()`、`dec()`、`init2()`
+
+### 头文件
+
+- 用 `#ifndef __FOO_H__` / `#define __FOO_H__` / `#endif` 守卫，**禁止** `#pragma once`
+- 头文件中**禁止** `using`（C 没有，但等价行为如 type alias 进头文件要克制）
+- 公共 API 用 `extern "C"` 守卫兼容 C++ 调用方：
+
+  ```c
+  #ifdef __cplusplus
+  extern "C" {
+  #endif
+
+  int open_camera(const char *device_path);
+
+  #ifdef __cplusplus
+  }
+  #endif
+  ```
+
+## 2. 注释（核心约束）
+
+### 只允许写注释的位置
+
+1. **文件头部**：版权 / license / 文件职责（一句话）。
+2. **头文件公共 API**：每个对外函数的简短 doc（一行说清输入 / 输出 / 返回值含义），让调用方在不读实现的情况下能正确使用。
+
+### 禁止写注释的位置
+
+- **函数实现内部**：禁止任何 `//` / `/* */` 注释，包括但不限于：
+  - `// 初始化变量`、`// 循环计数`、`// 读取一帧`、`// 错误处理`
+  - 区块分隔符 `// ======`
+  - 步骤标题 `// Step 1`、`// 主入口`、`// 配置区`
+  - TODO / FIXME（用 issue tracker）
+- **结构体 / 枚举字段**：字段名已说清的，不写注释。
+
+### 如何做到"无注释也能看懂"
+
+| 写法 | 体现 |
+| :--- | :--- |
+| 函数名是动词 + 具体对象 | `decode_h264_frame_to_nv12()` 而不是 `decode()` + 注释 |
+| 参数名有语义 | `width`、`height`、`fps` 而不是 `w`、`h`、`n` |
+| 局部变量有语义 | `retry_count`、`bytes_remaining` 而不是 `i`、`tmp` |
+| 函数短小、单一职责 | 一个函数 ≤ 50 行，做一件事 |
+| 控制流用 early return / guard clause | 减少嵌套，意图自现 |
+| 宏和数字给名字 | `#define H264_HEADER_SIZE 4` 比 `if (len > 4)` 强 |
+| 错误码 / 状态用 enum | `enum codec_result_t { CODEC_OK, CODEC_NEED_MORE_DATA, ... }` |
+
+### 反例 / 正例对照
+
+```c
+/* ❌ 反例：函数名抽象、参数无意义、函数内堆注释 */
+int process(int a, int b) {
+    // 初始化
+    int i = 0;
+    int tmp = a;
+    // 主循环
+    for (i = 0; i < b; i++) {
+        tmp += i;        // 累加
+        if (tmp > 100) { // 超过阈值
+            break;
+        }
+    }
+    return tmp; // 返回结果
+}
+```
+
+```c
+/* ✅ 正例：自解释 */
+int sum_until_threshold(int start, int threshold, int max_count) {
+    int running_total = start;
+    for (int count = 0; count < max_count; count++) {
+        running_total += count;
+        if (running_total >= threshold) {
+            break;
+        }
+    }
+    return running_total;
+}
+```
+
+## 3. 构建系统
+
+### 必须
+
+- 每个 C 功能子目录都有 `CMakeLists.txt`、`build_run.sh`、`README.md`
+- `cmake_minimum_required(VERSION 3.16)`
+- `project(<Name> VERSION x.y.z LANGUAGES C)`
+- `CMAKE_C_STANDARD 11`、`CMAKE_C_EXTENSIONS OFF`
+- 默认 `Release`（未指定时）：
+
+  ```cmake
+  if(NOT CMAKE_BUILD_TYPE)
+      set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
+  endif()
+  ```
+
+- 依赖走 `find_package` / `pkg_check_modules`
+- 编译选项：`target_compile_options(<tgt> PRIVATE -Wall -Wextra -Wpedantic -Wshadow -Wstrict-prototypes)`
+- 链接：`target_link_libraries(<tgt> PRIVATE ...)`，不用全局变量
+- C 标准库外的依赖明确写出：`find_package(Threads REQUIRED)`、`pkg_check_modules(LIBUV REQUIRED libuv)`
+
+### 禁止
+
+- 裸 `Makefile` / 裸 `gcc xxx -o xxx`
+- `qmake` / `autotools` / `meson` / `bazel`
+- 硬编码 `/usr/include/...`、`/home/pi/...` 等绝对路径
+- 构建产物写到源码目录（统一进 `build/`）
+- 在源码里 `#include "../xxx.c"`（违反模块边界）
+
+### `build_run.sh` 必备
+
+- `#!/usr/bin/env bash`、`set -euo pipefail`
+- 子命令：`run`（默认）/ `build` / `clean` / `rebuild`
+- 环境变量：`BUILD_TYPE`、`NORUN=1`
+- 构建产物统一进 `<功能目录>/build/`
+- 依赖检测：`command -v`、`pkg-config --exists`，失败时给出 `sudo apt install ...` 提示并退出 127
+- **不要**在脚本里自动 `sudo apt install`
+- 可执行位（`chmod +x build_run.sh`）
+- 需要 root 的项目（如 `i2c`、`gpio`、实时调度）由脚本自动 `sudo` 跳转
+
+## 4. 代码组织
+
+### 文件分层
+
+| 文件 | 职责 |
+| :--- | :--- |
+| `main.c` | 入口，统一叫 `main.c`（不加 `app.c` / `entry.c`） |
+| `<feature>.h` | 公共 API 声明（`extern` 函数、结构体、枚举） |
+| `<feature>.c` | 公共 API 实现 |
+| `<feature>_internal.h` | 可选：仅本模块可见的 helper |
+
+### 函数实现规范
+
+- 入口函数（被 main 调用的）允许略长，但仍是单一职责
+- 内部 helper 加 `static` 限定
+- 函数参数 ≤ 5 个；超过时考虑传结构体
+- 返回错误用 `int`（0 = 成功，负数 = 错误码）或 `bool`
+- 资源配对：`xxx_init() / xxx_cleanup()`、`xxx_create() / xxx_destroy()`；malloc/free、open/close 必须配对且同函数返回
+- 头文件只放声明；宏 / inline 函数可放头文件但要简短
+
+### 错误处理
+
+- 能返回值就返回值，**不要** `abort()` / `exit(EXIT_FAILURE)`（main 里允许 exit）
+- errno 相关函数：成功后保留 errno 是实现定义行为，需要时自己保存
+- 资源获取失败立即 cleanup 并返回错误码，**不要**继续往下走
+
+### 禁止使用的写法
+
+- `gets()`（已从 C11 移除）
+- 不限定长度的 `sprintf` / `strcpy` / `strcat`（用 `snprintf` / `strncpy` / `strncat` 或 `strlcpy` 系）
+- `alloca()`（栈分配，VLA 即可）
+- C++ 特性（`class`、`template`、`namespace`、`new`/`delete`、`auto`、`// 单行注释` OK 但 `//` 在 C99 之后合法，OK）
+- 隐式 `int` 返回类型（C99 之后已不允许，但老代码里有）
+- 函数定义嵌套（GCC 扩展）
+
+## 5. 与 C++ 规范的差异速查
+
+| 项 | C（`10-c.mdc`） | C++（`20-cpp.mdc`） |
+| :--- | :--- | :--- |
+| 函数命名 | `snake_case` | `PascalCase` |
+| 文件命名 | `snake_case.c` / `snake_case.h` | `PascalCase.cpp` / `PascalCase.h` |
+| 入口文件 | `main.c` | `Main.cpp` |
+| 头文件守卫 | `#ifndef __FOO_H__` | `#pragma once` |
+| 结构体 / 类 | `struct foo_t` | `class Foo` |
+| 成员前缀 | 无；用 `foo->bar` | `mBar` |
+| C 标准 | C11 | C++17 |
+| 编译警告 | 多 `-Wshadow -Wstrict-prototypes` | 标准三件套 |
+
+> 同一份代码不要既被 `20-cpp.mdc` 又被 `10-c.mdc` 覆盖——目录分离（`cpp/` vs `c/`）。
+
+## 6. README
+
+- 遵循 `40-readme.mdc`：项目目标 / 依赖 / 构建运行 / 参数表 / 已知问题 / 参考资料
+- 不含修改过程、改写历史、对原代码的解释
+- 关键步骤代码块用 ```bash

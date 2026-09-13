@@ -1,0 +1,391 @@
+---
+description: "嵌入式 C 工程的 stdf_ 子模块组织风格：stdf_<sub>_<feature> 目录 / 文件 / 函数命名，统一 init() 聚合入口，统一日志/断言宏，可选 feature 宏开关。补充在 10-c.mdc 之上。"
+globs: ["c/**/*.c", "c/**/*.h", "c/**/CMakeLists.txt", "c/**/build_run.sh"]
+---
+
+# C 代码：stdf 子模块风格（嵌入式）
+
+> 适用范围：嵌入式 MCU（ARM Cortex-M / BES / Best 系列等）以及需要按"子系统聚合 init"模式组织的 C 工程。  
+> 通用 C 风格（snake_case 命名、头文件守卫、函数自描述等）仍以 [`10-c.mdc`](./10-c.mdc) 为准；本规则是**叠加**而非替代。  
+> 普通 Linux 用户态项目请走 `10-c.mdc` + `c/_template/` 的 CMake 风格，不要套用本规则。
+
+参考样板：`/home/moyuping/work/bes/source/bes2600/BES2600IHC/stdf/`。
+
+---
+
+## 1. 总览
+
+整套代码以 **子系统（subsystem）** 为单位组织；子系统下按 **功能（feature）** 再分文件。
+
+```
+stdf_main/      ← 顶层聚合 init
+stdf_app/       ← 业务应用层（app_key / app_phy / app_protocal / ...）
+stdf_bsp/       ← 板级支持包（bsp_key / bsp_charger / ...）
+stdf_hal/       ← 硬件抽象层（hal_pmu / hal_vbus / ...）
+stdf_os/        ← OS 适配（os_mem / os_msg / os_delay_msg / ...）
+stdf_sdk/       ← SDK 适配（sdk_api / sdk_cb / ...）
+```
+
+**禁止**：
+- 把互不相关的功能塞进同一个 `<feature>` 文件（拆文件）。
+- 在 `stdf_xxx` 命名空间外新建自定义前缀——保持只有 `stdf_` 一个根前缀。
+
+---
+
+## 2. 命名
+
+### 2.1 文件
+
+| 类型 | 风格 | 示例 |
+| :--- | :--- | :--- |
+| 子系统聚合文件 | `stdf_<sub>.c` / `.h` | `stdf_app.c`、`stdf_app.h` |
+| 功能文件 | `stdf_<sub>_<feature>.c` / `.h` | `stdf_app_led.c`、`stdf_bsp_key.h` |
+| 子系统配置 | `stdf_<sub>_config.h` | `stdf_os_config.h` |
+| 全局定义 | `stdf_define.h` | 全局日志 / 断言宏 |
+
+> 子系统下**只有一个功能**时，可以省略 `<feature>`，如 `stdf_main/stdf.c`。  
+> 配置文件命名**强制**带 `_config` 后缀。
+
+### 2.2 函数
+
+| 类型 | 风格 | 示例 |
+| :--- | :--- | :--- |
+| 子系统聚合 init | `stdf_<sub>_init()` | `stdf_app_init()`、`stdf_bsp_init()` |
+| 功能 init | `stdf_<sub>_<feature>_init()` | `stdf_app_led_init()`、`stdf_bsp_key_init()` |
+| 功能动作 | `stdf_<sub>_<feature>_<verb>()` | `stdf_bsp_key_is_pressed()`、`stdf_os_msg_mailbox_put()` |
+| 顶层入口 | `stdf_init()` | 顶层聚合（仅此一个） |
+| 回调 / 事件 setter | `stdf_<sub>_<feature>_register_xxx()` | `stdf_bsp_key_register_event_callback()` |
+| 布尔查询 | `stdf_<sub>_<feature>_is_xxx()` / `_has_xxx()` | `stdf_app_phy_is_xxx()` |
+
+**禁止**：
+- 模糊动词（`handle_xxx` / `process_xxx` / `do_xxx` / `manage_xxx`）。
+- 单词函数（`stdf_init()` 顶层入口除外）。
+- 命名嵌套超过 3 段业务领域词。
+
+### 2.3 类型 / 枚举 / 宏 / 常量
+
+| 类型 | 风格 | 示例 |
+| :--- | :--- | :--- |
+| `typedef` 名 | `stdf_<sub>_<feature>_<thing>_t` | `stdf_os_msg_id_t`、`stdf_bsp_key_num_t` |
+| `struct` tag | 同上（强制 `_t` 后缀，禁止 `_s` / `_st` / 其它尾缀） | `stdf_os_msg_mailbox_t` |
+| 枚举值 | `STDF_<SUB>_<FEATURE>_<NAME>` 全大写下划线 | `STDF_BSP_KEY_EVENT_PRESS` |
+| 枚举类型名 | `stdf_<sub>_<feature>_<thing>_t`（与 typedef 同规则） | `stdf_app_led_imsg_id_t` |
+| 模块常量 / 阈值 | `STDF_<SUB>_<FEATURE>_<NAME>` | `STDF_BSP_KEY_LONG_PRESS_TIME` |
+| 功能开关宏 | `__STDF_<FEATURE>_ENABLE__`（双下划线包围） | `__STDF_EXTERNAL_CHAGER_ENABLE__` |
+
+> 命名段数建议 ≤ 4；超过时优先拆分模块。
+
+---
+
+## 3. 注释
+
+**风格**：简短、能 1 行说清的不写 3 行；不要 doxygen `@fn / @brief / @param / @return` 那种花哨模板。
+
+**允许的位置**：
+1. **文件头**：1-2 句话讲清职责。
+2. **函数声明前**（头文件）：一句说明输入 / 输出 / 返回值含义。
+
+**禁止**：
+- 函数实现内部任何 `//` / `/* */` 注释（与 `10-c.mdc` 一致）。
+- 区块分隔符 `// ======`、`// [Step 1]`、`// 主入口`。
+- 描述性注释（`// 读取一帧`、`// 初始化变量`）。
+- doxygen 风格 `@fn / @brief / @param / @return / @notice` 五段模板。
+- 5 字段填空模板（Filename / Version / Author / Description / IMPORTANT）——不必保留。
+
+---
+
+## 4. 头文件模板
+
+每个 `.h` 必须有：顶部 1-2 句话职责说明 + 头文件守卫 + `extern "C"` 块。
+
+```c
+/* stdf_<sub>_<feature> - <一句话职责> */
+
+#ifndef __STDF_<SUB>_<FEATURE>_H__
+#define __STDF_<SUB>_<FEATURE>_H__
+
+#include "plat_types.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* MACROS */
+
+
+/* TYPEDEFS */
+
+
+/* FUNCTIONS */
+
+/* stdf_<sub>_<feature>_init - <一句话说明> */
+void stdf_<sub>_<feature>_init(void);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* __STDF_<SUB>_<FEATURE>_H__ */
+```
+
+**强约束**：
+- 守卫宏用 `#ifndef __STDF_..._H__`，**禁止** `#pragma once`（与 `10-c.mdc` 一致）。
+- 公共 API 必须在 `extern "C"` 内声明。
+- 头文件**禁止** type alias 污染。
+
+---
+
+## 5. `.c` 文件模板
+
+```c
+/* stdf_<sub>_<feature> - <一句话职责> */
+
+#include "stdf_define.h"
+#include "stdf_<sub>.h"
+/* 其它头按依赖顺序排：第三方 -> 本项目 */
+
+/* MACROS - 子系统日志 / 断言 */
+#define STDF_<SUB>_LOG(...)             STDF_LOG("[<SUB>] %s ", __func__); STDF_LOG(__VA_ARGS__)
+#define STDF_<SUB>_ASSERT(cond)         STDF_ASSERT(cond)
+
+/* 模块常量 */
+
+#define STDF_<SUB>_<FEATURE>_SOMETHING  (100)
+
+/* TYPEDEFS */
+
+
+/* GLOBAL VARIABLES */
+
+
+/* FUNCTIONS */
+
+void stdf_<sub>_<feature>_init(void)
+{
+    /* 实现 */
+}
+```
+
+**强约束**：
+- 文件顶部必须有 `STDF_<SUB>_LOG / STDF_<SUB>_ASSERT` 两个宏（`<SUB>` 是当前子系统的全大写标识，如 `APP`、`BSP`、`OS`）。
+- 函数体内**禁止**任何注释。
+- 头文件声明前可以有一句 `/* xxx - 输入/输出说明 */`，但不要 doxygen 五段式。
+
+---
+
+## 6. 日志与断言体系
+
+### 6.1 全局基础宏（在 `stdf_define.h` 中定义）
+
+```c
+#define STDF_LOG(...)                 printf("[STDF]" __VA_ARGS__)
+#define STDF_DUMP8(str, buf, cnt)     /* 平台相关，参考代码里 DUMP8 */
+#define STDF_ASSERT(cond)             do { \
+                                          if (!(cond)) { \
+                                              fprintf(stderr, "[STDF][ASSERT] %s line %d\n", __func__, __LINE__); \
+                                              abort(); \
+                                          } \
+                                      } while (0)
+```
+
+> `STDF_LOG` 在参考代码里是基于底层 `TRACE(0, "[STDF] "str, ...)`，在新平台替换为 `printf` 即可。
+
+### 6.2 模块日志宏（每个 `.c` 顶部）
+
+| 形式 | 用途 | 示例 |
+| :--- | :--- | :--- |
+| `STDF_<SUB>_LOG` | 子系统级日志 | `STDF_OS_LOG("mem free %d", n)` |
+| `STDF_<SUB>_<FEATURE>_LOG` | 功能级日志（更细标签） | `STDF_BSP_KEY_LOG("pressed")` |
+| `STDF_<SUB>_ASSERT` / `STDF_<SUB>_<FEATURE>_ASSERT` | 模块断言 | `STDF_BSP_KEY_ASSERT(pin != HAL_GPIO_PIN_NONE)` |
+
+**禁止**：
+- 业务代码直接 `printf` / `LOG_I` 绕过 `STDF_LOG`。
+- 自己拼 `[STDF]` 前缀。
+- 在 ISR / hot loop 里加 `_LOG`。
+
+---
+
+## 7. 异步处理统一接口
+
+整套 stdf 风格用 `(handler, msg_id, payload)` 三元组做异步消息传递。`stdf_os.h` 只是聚合门面，**只 `#include` 各子模块 `.h`（mem / msg / delay_msg）把 API 转出**，自身不重新声明原型；具体声明在 `stdf_os_msg.h` / `stdf_os_delay_msg.h` / `stdf_os_mem.h` 等子模块头里，业务代码 include `stdf_os.h` 即可看到全部 API。**不要**再额外定义 `message_send` / `message_send_later` 语义糖宏。
+
+```c
+/* stdf_os.h 公共 API */
+typedef void (*stdf_os_handler_t)(stdf_os_msg_id_t msg_id, void *payload);
+
+int          stdf_os_msg_mailbox_put(stdf_os_handler_t handler, stdf_os_msg_id_t msg_id, void *payload);
+void         stdf_os_delay_msg_send_later(stdf_os_handler_t handler, stdf_os_msg_id_t msg_id, void *payload, uint32_t delay_ms);
+uint16_t     stdf_os_delay_msg_get_count(stdf_os_handler_t handler, stdf_os_msg_id_t msg_id);
+bool         stdf_os_delay_msg_cancel_all(stdf_os_handler_t handler, stdf_os_msg_id_t msg_id);
+```
+
+**handler 签名强制**：
+
+```c
+typedef void (*stdf_os_handler_t)(stdf_os_msg_id_t msg_id, void *payload);
+```
+
+**msg_id 分配约定**：
+- `0x0000 ~ 0x7FFF`：IMSG（子系统内部消息），由各子系统自行 enum（如 `STDF_APP_PHY_IMSG_ID_INIT`）。**强制 `typedef enum { ... } stdf_<sub>_<feature>_imsg_id_t`**，定义在子模块 `.h`（同子系统其它模块可见，用于跨模块投递），**禁止 `#define` 裸常量**。
+- `0x8000 ~ 0xFFFE`：GMSG（全局消息，跨子系统），集中在 `stdf_os_config.h` 里 `#define`（如 `STDF_OS_GMSG_ID_PHY_IN_EAR`）。
+- `0xFFFF`：`STDF_OS_MSG_ID_INVALID`。
+
+**禁止**：
+- 用裸 `osMailAlloc / osMessagePut / xQueueSend` 等平台 API 直接收发——必须走 `stdf_os_*` 包装。
+- 业务代码自己 `#include "cmsis_os.h"` / `"FreeRTOS.h"`。
+- 把 `message_send / message_send_later` 等语义糖宏重新定义一遍。
+
+---
+
+## 8. 聚合 init 入口
+
+每个子系统**必须**暴露一个 `stdf_<sub>_init()` 函数；顶层 `stdf_init()` 按依赖顺序调用：
+
+```c
+void stdf_init(void)
+{
+    STDF_LOG("stdf_init");
+
+    stdf_os_init();      /* OS 适配最先 */
+    stdf_sdk_init();     /* 然后 SDK / HAL */
+    stdf_hal_init();
+    stdf_bsp_init();     /* 然后 BSP */
+    stdf_app_init();     /* 最后 APP */
+}
+```
+
+**约束**：
+- 子系统 `xxx_init()` 内部继续调用本子系统下各功能的 `_init()`。
+- init 顺序**只允许**单向依赖：`os → sdk/hal → bsp → app`；**禁止**反向依赖。
+- 不再提供 `stdf_init_fast` 之类的快速路径——如需跳过某些 init，直接注释对应子系统调用即可。
+
+---
+
+## 9. 可选 feature 开关
+
+可选功能用 `__STDF_<FEATURE>_ENABLE__` 双下划线宏开关（与参考代码一致），**集中**定义在 `stdf_main/stdf_config.h` 或对应子系统的 `stdf_<sub>_config.h`：
+
+```c
+#ifndef __STDF_CONFIG_H__
+#define __STDF_CONFIG_H__
+
+#define __STDF_HAL_PMU_ENABLE__
+/* #define __STDF_EXTERNAL_CHAGER_ENABLE__ */
+
+#endif
+```
+
+使用：
+
+```c
+#ifdef __STDF_HAL_PMU_ENABLE__
+    stdf_hal_pmu_init();
+#endif
+```
+
+**禁止**：
+- 在 `stdf_define.h` 里定义 feature 开关（应放在 `*_config.h`）。
+- 用 `1` / `0` 形式（参考代码都是空定义 + `#ifdef` 检测）。
+- 在 `.c` 内部动态 `#define`（必须构建期决定）。
+
+---
+
+## 10. 构建系统
+
+嵌入式 MCU 例外允许**裸 Makefile**（参考代码本身就这么写）。  
+普通 Linux / Pi 项目仍按 `10-c.mdc` 走 **CMake + `build_run.sh`**。
+
+**CMake 风格模板**（推荐用于本仓库的 c/embed/）：
+
+```cmake
+cmake_minimum_required(VERSION 3.16)
+project(stdf_demo VERSION 1.0.0 LANGUAGES C)
+
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_EXTENSIONS OFF)
+
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
+endif()
+
+find_package(Threads REQUIRED)
+# 可选依赖：用 pkg_check_modules 检测，缺失时 fallback
+pkg_check_modules(GPIOD libgpiod)
+
+add_executable(stdf_demo
+    main.c
+    stdf_main/stdf.c
+    stdf_os/stdf_os.c
+    stdf_app/stdf_app.c
+    stdf_app/stdf_app_led.c
+    # ...
+)
+
+target_include_directories(stdf_demo PRIVATE
+    stdf_main
+    stdf_os
+    stdf_app
+)
+
+target_compile_options(stdf_demo PRIVATE -Wall -Wextra -Wpedantic -Wshadow)
+target_link_libraries(stdf_demo PRIVATE Threads::Threads)
+
+if(GPIOD_FOUND)
+    target_compile_definitions(stdf_demo PRIVATE STDF_DEMO_HAS_GPIOD)
+    target_link_libraries(stdf_demo PRIVATE ${GPIOD_LIBRARIES})
+    target_include_directories(stdf_demo PRIVATE ${GPIOD_INCLUDE_DIRS})
+endif()
+```
+
+`build_run.sh` 必须按 `10-c.mdc` 标准模板（`run` / `build` / `clean` / `rebuild` + `BUILD_TYPE` + `NORUN`）。
+
+---
+
+## 11. 与 `10-c.mdc` 的差异速查
+
+| 项 | 通用 C（`10-c.mdc`） | stdf 风格（本规则） |
+| :--- | :--- | :--- |
+| 函数命名 | `snake_case` | `stdf_<sub>_<feature>_<verb>()` |
+| 文件命名 | `snake_case.c/h` | `stdf_<sub>_<feature>.c/h` |
+| 入口文件 | `main.c` | `main.c`（业务入口）+ `stdf_main/stdf.c`（聚合入口） |
+| 头文件守卫 | `#ifndef __FOO_H__` | `#ifndef __STDF_<...>_H__` |
+| 函数体注释 | 禁止 | 禁止（与 15-c 一致） |
+| 注释风格 | 自由 | 简洁 // 或 /* */，禁止 doxygen 五段式 |
+| 日志 | 自由 `printf` | 强制走 `STDF_<SUB>_LOG` |
+| 异步 | 自由 | 统一 `(handler, msg_id, payload)` 三元组，直接调 `stdf_os_*` 函数 |
+| 构建 | cmake | cmake / 裸 Makefile 都可（嵌入式例外） |
+| 顶层 init | 无 | 必须有 `stdf_init()`，**没有** `_fast` 变体 |
+
+> 同一份代码不要既受 `10-c.mdc` 又受本规则"通用 C"那一栏约束——目录分离即可（`c/embed/` 走本规则；`c/linux/` 走通用）。
+
+---
+
+## 12. 反模式（❌）
+
+- 在 stdf 体系外起新前缀：`moyu_xxx`、`mp_xxx`——统一只有 `stdf_`。
+- `void stdf_xxx(void)` 这种单词函数（顶层 `stdf_init` 除外）。
+- 在头文件里 `#include "cmsis_os.h"` / `"FreeRTOS.h"` 暴露给业务方。
+- 用裸 `osMessagePut / xQueueSend` 替代 `stdf_os_msg_mailbox_put`。
+- `printf("[STDF][APP] ...")` 绕过 `STDF_APP_LOG`。
+- 文件名 `stdf_app.c` 里塞 `app_led / app_key / app_phy` 三个功能（要拆文件）。
+- 业务方在自己的 `.c` 里定义 `LOG` / `DUMP` / `ASSERT` 宏污染全局命名空间。
+- doxygen 五段式注释（`@fn / @brief / @param / @return / @notice`）。
+- 把 `message_send / message_send_later` 重新定义成宏。
+
+---
+
+## 13. 自检清单（Cursor 生成 / 修改 stdf 风格代码后）
+
+- [ ] 文件名以 `stdf_<sub>[_<feature>].c/h` 形式？
+- [ ] 函数名以 `stdf_<sub>_<feature>_<verb>()` 形式？
+- [ ] 头文件用了 `#ifndef __STDF_..._H__` 而非 `#pragma once`？
+- [ ] `.c` 顶部有 `STDF_<SUB>_LOG / STDF_<SUB>_ASSERT` 宏？
+- [ ] 函数体内部没有任何注释？
+- [ ] 函数声明前最多 1 句 `/* xxx - 说明 */` 而非 doxygen 五段式？
+- [ ] 异步消息直接调 `stdf_os_*` 函数，没有重定义 `message_send` 宏？
+- [ ] 所有公开 API 在 `extern "C"` 内？
+- [ ] 子系统有自己的 `xxx_init()`，并在 `stdf_init()` 中按 `os → sdk/hal → bsp → app` 顺序被调用？
+- [ ] 没有 `stdf_init_fast` 之类的快速变体？
+- [ ] `struct` tag 与 typedef 名都用 `_t` 后缀，没有 `*_s` / `*_st` 之类的旧尾缀？
+- [ ] 子系统内部消息 ID（IMSG）已用 `typedef enum` 定义，没有用 `#define` 裸常量？
+- [ ] 聚合门面头文件（如 `stdf_os.h`）只 `#include` 子模块 `.h`，没有重复声明 API？

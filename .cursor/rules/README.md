@@ -7,25 +7,32 @@
 | 文件 | 范围 | 说明 |
 | :--- | :--- | :--- |
 | `00-general.mdc` | `**/*`（alwaysApply） | 仓库结构、命名规范、Git 工作流、Cursor 行为约束 |
-| `10-cpp.mdc` | `cpp/**/*.{cpp,h,hpp,sh,cmake}`（alwaysApply） | C++ 强制 CMake + `build_run.sh`、源码组织、CMake 模板 |
-| `20-python.mdc` | `python/**/*.py`、`requirements.txt`（alwaysApply） | Python 强制 `main.py` + `requirements.txt`、`logging` / `pathlib` |
-| `30-readme.mdc` | `**/README.md`（alwaysApply） | README.md 必填章节、命令示例、表格规范 |
+| `20-cpp.mdc` | `cpp/**/*.{cpp,h,hpp,sh,cmake}`（alwaysApply） | C++ 强制 CMake + `build_run.sh`、源码组织、CMake 模板 |
+| `10-c.mdc` | `c/**/*.{c,h,sh,cmake}`（alwaysApply） | C 语言强制 CMake + `build_run.sh`、无注释自解释、snake_case 命名 |
+| `30-python.mdc` | `python/**/*.py`、`requirements.txt`（alwaysApply） | Python 强制 `main.py` + `requirements.txt`、`logging` / `pathlib` |
+| `40-readme.mdc` | `**/README.md`（alwaysApply） | README.md 必填章节、命令示例、表格规范 |
 
 > 所有规则都用 `alwaysApply: true` + `globs` 双重触发，确保目标文件被操作时自动加载。
 
 ## 关键约束一览
 
-### C++（`10-cpp.mdc`）
+### C++（`20-cpp.mdc`）
 - ✅ **必须 CMake**（`>=3.16`、`LANGUAGES C CXX`、C++17、Release 默认）
 - ✅ **每个功能目录必须 `build_run.sh`**（`set -euo pipefail`、统一产物到 `build/`、支持 `run/build/clean/rebuild`、依赖检测 + 提示）
 - ❌ 禁止裸 `Makefile`、硬编码 `-I/usr/include`、脚本里 `sudo apt install`
 
-### Python（`20-python.mdc`）
+### C（`10-c.mdc`）
+- ✅ **必须 CMake**（`LANGUAGES C`、C11、`-Wshadow -Wstrict-prototypes`）
+- ✅ **函数实现内禁止写注释**——用命名和拆分讲清意图（`verb_object` + 有意义参数）
+- ✅ 文件头 / 头文件公共 API 可写注释
+- ❌ 禁止匈牙利命名、`process()` / `handle()` 这类模糊动词、`gets()` / 不限长 `strcpy`
+
+### Python（`30-python.mdc`）
 - ✅ **`main.py` + `requirements.txt` 双件套**
 - ✅ `pathlib` / `logging` / Google docstring / 类型注解
 - ❌ 禁止 `print()` 散布调试、`os.system('sudo ...')`、吞错
 
-### README（`30-readme.mdc`）
+### README（`40-readme.mdc`）
 - ✅ **每个功能目录必须有 README.md**（不是 `.mk`）
 - ✅ 必填 6 章节：`功能简介 / 依赖 / 构建与运行 / 关键参数 / 已知问题 / 参考资料`
 - ✅ 命令示例使用 `<占位符>`、关键参数用表格
@@ -40,7 +47,8 @@
 当用户说"新建一个 X 示例"：
 
 1. **C++**：`cp -r cpp/_template cpp/<topic>/<feature>` → 改 `CMakeLists.txt` + `build_run.sh` + `main.cpp` + `README.md` → 提醒 `chmod +x build_run.sh`
-2. **Python**：`cp -r python/_template python/<topic>/<feature>` → 改 `main.py` + `requirements.txt` + `README.md`
+2. **C**：`cp -r c/_template c/<topic>/<feature>` → 改 `CMakeLists.txt` + `build_run.sh` + `main.c` + `README.md` → 提醒 `chmod +x build_run.sh`
+3. **Python**：`cp -r python/_template python/<topic>/<feature>` → 改 `main.py` + `requirements.txt` + `README.md`
 
 ## 如何自定义规则
 

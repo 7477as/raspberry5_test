@@ -82,7 +82,7 @@ except Exception as e:
 python/<topic>/<feature>/
 ├── main.py                 ← 必需
 ├── requirements.txt        ← 必需
-├── README.md               ← 必需（见 30-readme.mdc）
+├── README.md               ← 必需（见 40-readme.mdc）
 ├── <feature>/              ← 可选：本地包
 │   ├── __init__.py
 │   └── ...

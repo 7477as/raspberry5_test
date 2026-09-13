@@ -12,14 +12,15 @@ alwaysApply: true
 
 仓库根只能有这些顶层目录：
 
-- `cpp/`     —— C/C++ 示例工程（详见 `10-cpp.mdc`）
-- `python/`  —— Python 示例脚本 / 包（详见 `20-python.mdc`）
+- `cpp/`     —— C++ 示例工程（详见 `20-cpp.mdc`）
+- `c/`       —— C 示例工程（详见 `10-c.mdc`）
+- `python/`  —— Python 示例脚本 / 包（详见 `30-python.mdc`）
 - `misc/`    —— 第三方二进制、配置、杂项
 - `docs/`    —— 可选的额外文档
 - `.cursor/` —— Cursor 编辑器配置 / rules
 
 **禁止**：
-- 在仓库根直接放散落的 `.cpp` / `.py` / `.sh` 文件
+- 在仓库根直接放散落的 `.c` / `.cpp` / `.py` / `.sh` 文件
 - 新建顶层目录（除非先在 PR 中说明）
 - 把构建产物 / 模型权重提交进 git（见根 `.gitignore`）
 
@@ -29,10 +30,11 @@ alwaysApply: true
 
 ```
 cpp/<topic>/<feature>/       # 例: cpp/video/video_play_gstreamer/
+c/<topic>/<feature>/         # 例: c/gpio/led_blink/
 python/<topic>/<feature>/    # 例: python/yolo/yolo8_detection_default/
 ```
 
-**每个功能子目录必须有 `README.md`**（详见 `30-readme.mdc`），禁止把多个互不相关的小示例塞进同一个目录。
+**每个功能子目录必须有 `README.md`**（详见 `40-readme.mdc`），禁止把多个互不相关的小示例塞进同一个目录。
 
 ## 3. 命名规范（速查）
 
@@ -40,6 +42,7 @@ python/<topic>/<feature>/    # 例: python/yolo/yolo8_detection_default/
 | :--- | :--- | :--- |
 | 目录（功能） | `snake_case` | `video_play_gstreamer` |
 | 文件（C++） | `snake_case` + 扩展 | `frame_buffer.cpp` / `frame_buffer.h` |
+| 文件（C） | `snake_case` + 扩展 | `frame_buffer.c` / `frame_buffer.h` |
 | 类 | `PascalCase` | `FrameBuffer` |
 | 函数 / 变量 | `snake_case` | `open_camera()` / `frame_count` |
 | 常量 / 宏 | `UPPER_SNAKE` | `BUFFER_FRAMES` |
