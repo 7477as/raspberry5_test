@@ -1,0 +1,3 @@
+# BLE GATT Server 依赖
+# bluezero: Python wrapper for BlueZ D-Bus API
+bluezero>=0.7.0,<1.0
