@@ -1,98 +1,99 @@
 # stdf_mvc 演示
 
-> 云台相机场景的发布订阅中间件，覆盖 60 个业务事件，单例、跨线程、平台可移植。
+> 发布订阅中间件，v4 简化版：per-subject cache publisher-中立、4 个公开 API、read 2 参数、subject 名称与 size 表统一从 X-macro 派生。
 
 ## 功能简介
 
-`stdf_mvc` 是一个**发布订阅 (pub/sub) 中间件**，按 STDF 编码规范实现，专为云台相机的 60+ 业务事件设计：
+`stdf_mvc` 是一个**发布订阅 (pub/sub) 中间件**，专为资源受限的嵌入式 MCU 设计：
 
-- **视频流域** (7)：原始帧、编码帧、录制状态、录制时长、分辨率、码率、夜视
-- **AI 视觉** (6)：检测结果、跟踪状态、目标切换、人脸识别、手势、场景
-- **云台控制** (7)：当前姿态、目标姿态、模式、运动、过载、摇杆响应
-- **IMU 姿态** (5)：加速度、陀螺仪、四元数、欧拉角、温度
-- **传感器** (6)：电池电压/电量/充电/健康/温度/湿度
-- **用户输入** (5)：按键、触摸、旋钮、遥控、语音
-- **网络** (8)：WiFi/BLE/RTMP/MQTT/NTP/RTSP 状态
-- **存储** (5)：SD 卡状态、剩余空间、拍照、文件传输、文件列表
-- **系统** (6)：启动/关机/固件更新/OTA/错误/日志
-- **设置** (4)：用户模式、设置项、配置、语言
+- **v4 简化**：`read(id, data)` 仅 2 参数；per-subject cache 每 subject 单槽（不按 publisher 分槽）；4 个公开 API 第 4 参数统一命名为 `data`
+- **按实际占用分配 cache**：编译期 X-macro 求和，只分配真正用到的字节
+- **publisher 过滤**：发布者可为 `STD_MVC_LOCAL` / `STD_MVC_REMOTE` / `STD_MVC_ANY`（ANY 接收所有）
+- **pub_type**：当前仅 `STD_MVC_PUB_ASYNC`，`STD_MVC_PUB_SYNC` 保留待实现
+- **4 子系统**：dm（数据管理）、net（网络）、camera（视频/AI）、ui（界面）
+- **静态内存**：零默认堆分配，节点池 + 环形队列全部静态
 
 ### 关键特性
 
 | 特性 | 说明 |
 | :--- | :--- |
-| 内存模型 | 静态节点池（4096 节点），零默认分配 |
+| 内存模型 | 静态 slot 池（64 节点）+ ring queue（256 槽）+ per-subject cache |
+| cache 大小 | 编译期 X-macro 实测求和（demo: 16B = sizeof(temperature_sample)） |
 | 线程安全 | 全局互斥；订阅/退订持锁，发射不持锁 |
-| 重入安全 | Slot 内可 unsubscribe / re-subscribe（缓存 next） |
-| 跨线程 | `emit_async` 走 port 层环形队列 + worker 线程 |
-| 调试 | `dump_subjects()` 打印所有订阅状态 + emit 计数 |
-| 平台抽象 | `stdf_mvc_port.h` 接口 + linux / melis 两份实现 (mem/critical/tick/post_async；日志由 `stdf_define.h` 统一处理) |
-| Payload | 8B union（值类型）+ `void *` 借用（大 payload 借用语义） |
-| 业务解耦 | Subject / payload / 业务模块 三层分离，框架零业务耦合 |
+| 跨线程 | async worker thread（pthread + condvar） |
+| 平台抽象 | `stdf_mvc_core_port.h` 接口 + linux / melis 两份实现 |
+| Payload | 业务 struct 直传，零拷贝 |
 
 ## 依赖 / 环境
 
 - 硬件：树莓派 5（验证环境）
 - 系统：Raspberry Pi OS Bookworm 64-bit
-- 编译器：gcc + cmake ≥ 3.16
+- 编译器：gcc + cmake >= 3.16
 - 第三方库：**无**（仅 pthread，标准库自带）
+- 可选 SDL2：`sudo apt install libsdl2-dev`（安装后自动编译 SDL2 UI 模块）
 
 ## 目录结构
 
 ```
 stdf_mvc/
-├── CMakeLists.txt                # 构建
-├── build_run.sh                  # run/build/clean/rebuild
-├── main.c                        # 入口
+├── CMakeLists.txt
+├── build_run.sh
+├── main.c
+├── stdf_mvc_api.h/.c            # 公开 4 接口（v4 简化签名）
 │
-├── mvc/                          # ── 框架核心 (零业务耦合)
-│   ├── stdf_mvc.h                # 聚合门面
-│   ├── stdf_mvc.c                # 聚合 init / deinit
-│   ├── stdf_mvc_config.h         # 编译期配置
-│   ├── stdf_mvc_port.h           # 平台抽象接口
-│   ├── stdf_mvc_port.c           # 框架对 ops 的访问层
-│   ├── stdf_mvc_port_linux.c     # 树莓派/Linux 实现 (pthread)
-│   ├── stdf_mvc_port_melis.c     # 全志 F136 melis 占位
-│   ├── stdf_mvc_signal.h         # 8B union + ptr 借用约定
-│   ├── stdf_mvc_slot.h           # slot 节点定义
-│   ├── stdf_mvc_subject.h        # 框架侧 X-macro 入口
-│   ├── stdf_mvc_subject.c        # name 表 (调试用)
-│   ├── stdf_mvc_pool.h/.c        # 静态节点池
-│   ├── stdf_mvc_emit.h/.c        # 同步发射 + subscribe/unsubscribe
-│   ├── stdf_mvc_async.h/.c       # 异步发射 (pthread + condvar)
-│   └── stdf_mvc_async_melis.c    # 异步发射 (melis 占位)
+├── core/                        # 框架核心
+│   ├── stdf_mvc_core.h/.c      # init/deinit/控制
+│   ├── stdf_mvc_core_types.h   # publisher/pub_type/slot_fn（含 STD_MVC_ANY）
+│   ├── stdf_mvc_core_config.h
+│   ├── stdf_mvc_core_meta.h/.c # payload_size X-macro 表
+│   ├── stdf_mvc_core_slot.h
+│   ├── stdf_mvc_core_subject.h/.c
+│   ├── stdf_mvc_core_pool.h/.c
+│   ├── stdf_mvc_core_data.h/.c     # per-subject cache（publisher-中立）
+│   ├── stdf_mvc_core_dispatch.h/.c
+│   ├── stdf_mvc_core_async.h
+│   ├── stdf_mvc_core_async_linux.c
+│   ├── stdf_mvc_core_port.h/.c     # 平台无关默认（mem_alloc/free）
+│   ├── stdf_mvc_core_port_linux.c  # pthread critical section
+│   └── stdf_mvc_core_port_melis.c   # 全志 melis 占位
 │
-├── stdf_define.h                 # ── 全局 STDF_LOG_I/W/E/D + STDF_ASSERT (LOG 风格参考 stdf_os)
+├── util/
+│   └── std_mvc_log.h            # STD_MVC_LOG_I/W/E/D + STD_MVC_ASSERT
 │
-├── subject/                      # ── 业务 subject id 定义 (相机60 个事件)
-│   ├── stdf_mvc_subjects.h       # 拼装主入口 (含 STDF_MVC_SUBJECT_LIST 宏)
-│   └── stdf_mvc_subject_<domain>.h   # 10 个业务域 (ai/video/gimbal/...)
+├── subsystem/                    # 纯数据（无业务逻辑）
+│   ├── std_mvc_subsystems.h     # X-macro (name/size/sum)，通过 CMake -include 注入
+│   ├── dm/
+│   │   ├── std_mvc_subject_dm.h    # subject ID 枚举
+│   │   └── std_mvc_data_dm.h       # payload 结构体（当前仅温度）
+│   ├── net/                     # 同上（占位）
+│   ├── camera/                  # 同上（占位）
+│   └── ui/                     # 同上（占位）
 │
-├── payload/                      # ── 业务 payload 数据结构
-│   ├── stdf_mvc_payloads.h       # 主入口
-│   └── stdf_mvc_payload_<domain>.h   # 10 个业务域
-│
-└── app/                          # ── 业务子系统 (相机业务实现)
-    ├── stdf_app.h                # 业务聚合
-    ├── stdf_app.c                # stdf_app_init + tick
-    ├── hal_dummy/                # 模拟硬件抽象 (无真硬件)
-    ├── input_mock/               # 模拟按键 / 旋钮输入
-    ├── imu/                      # IMU 数据源 (从 hal → emit)
-    ├── battery/                  # 电池监控 (含低电告警)
-    ├── network/                  # 网络状态
-    ├── storage/                  # SD 卡 / 文件管理
-    ├── ai/                       # AI 检测/跟踪模拟
-    ├── gimbal/                   # 云台 PID 控制
-    ├── video/                    # 视频录制
-    └── indicator/                # LED / 蜂鸣器指示器 (订阅)
+└── app/                        # 业务层
+    ├── std_mvc_apps.h/.c        # 聚合入口（app_init/tick/deinit）
+    ├── dm/std_mvc_dm_temperature.h/.c  # 温度发布者
+    ├── net/std_mvc_net.h/.c           # 网络（占位）
+    ├── camera/std_mvc_camera.h/.c     # 视频/AI（占位）
+    └── ui/
+        ├── std_mvc_ui_print.h/.c     # 打印订阅者
+        └── std_mvc_ui_sdl.h/.c        # SDL2 图形 UI（可选，libsdl2-dev）
 ```
+
+## 分层约束
+
+| 层 | 允许 include | 禁止 |
+|---|---|---|
+| `core/**` | 标准库、自家私有头 | `subsystem/**`、`app/**` |
+| `subsystem/**` | `core/stdf_mvc_core_types.h`、同层数据头、标准库 | `stdf_mvc_api.h`、`app/**` |
+| `app/**` | `stdf_mvc_api.h`、`subsystem/<x>/std_mvc_data_<x>.h`、`util/std_mvc_log.h` | `core/**` 私有头 |
+| `main.c` | `stdf_mvc_api.h`、`app/std_mvc_apps.h` | `core/**`、`subsystem/**` |
 
 ## 构建与运行
 
 ```bash
 cd c/middleware/stdf_mvc
 chmod +x build_run.sh
-./build_run.sh          # 配置 + 构建 + 运行 (默认)
+./build_run.sh          # 配置 + 构建 + 运行（默认）
 ./build_run.sh build    # 仅构建
 ./build_run.sh clean    # 清理 build 目录
 ./build_run.sh rebuild  # clean + build
@@ -100,112 +101,95 @@ NORUN=1 ./build_run.sh  # 仅构建不运行
 BUILD_TYPE=Debug ./build_run.sh
 ```
 
-## 关键参数 / 配置
+安装 SDL2 以启用图形 UI：
 
-### `stdf_mvc_config.h`
+```bash
+sudo apt install libsdl2-dev
+./build_run.sh
+# 弹出 800x480 窗口，温度条随采样更新
+# Ctrl+C 或 Esc 退出
+```
+
+## 关键参数 / 配置
 
 | 宏 | 默认值 | 说明 |
 | :--- | :--- | :--- |
-| `STDF_MVC_POOL_SIZE` | `4096` | 静态节点池容量 = subject 数 × 平均订阅者 + 预留 |
-| `STDF_MVC_ENABLE_ASYNC` | `1` | 启用异步发射 |
-| `STDF_MVC_SUB_CHANGE_LOG` | `1` | 订阅/退订事件日志 |
-| `STDF_MVC_EMIT_COUNT` | `1` | 每个 subject 的 emit 计数器 |
-| `STDF_MVC_ASYNC_QUEUE_DEPTH` | `256` | 异步环形队列深度 |
+| `STD_MVC_POOL_SIZE` | `64` | 静态 slot 池容量 |
+| `STD_MVC_ASYNC_QUEUE_DEPTH` | `256` | 异步 ring queue 深度 |
+| `STD_MVC_SUB_CHANGE_LOG` | `1` | 订阅/退订事件 debug 日志 |
+| `STD_MVC_LOG_LEVEL` | `INFO` | `DEBUG`/`INFO`/`WARN`/`ERROR` |
+| `CPU_TEMP_PATH` | `/sys/class/thermal/thermal_zone0/temp` | CPU 温度读取路径（Pi 5 SoC） |
+| `TEMPERATURE_PUBLISH_DELTA_C` | `1.0f` | 温度发布阈值（℃）；差值 ≥ 此值才再次发布 |
+| `TEMPERATURE_SAMPLE_PERIOD_MS` | `1000u` | 温度采样周期（每 tick 100ms） |
 
-### 关键 API
-
-```c
-#include "stdf_mvc.h"
-
-int  stdf_mvc_init(void);
-void stdf_mvc_deinit(void);
-
-int  stdf_mvc_subject_subscribe(stdf_mvc_subject_id_t      id,
-                                stdf_mvc_slot_fn_t         fn,
-                                void                      *user_data);
-int  stdf_mvc_subject_unsubscribe(stdf_mvc_subject_id_t    id,
-                                  stdf_mvc_slot_fn_t       fn,
-                                  void                    *user_data);
-
-int  stdf_mvc_subject_emit(stdf_mvc_subject_id_t          id,
-                           const stdf_mvc_signal_data_t  *data);
-int  stdf_mvc_subject_emit_async(stdf_mvc_subject_id_t    id,
-                                 const stdf_mvc_signal_data_t *data);
-
-uint16_t stdf_mvc_subject_get_subscriber_count(stdf_mvc_subject_id_t id);
-uint32_t stdf_mvc_get_pool_used(void);
-uint32_t stdf_mvc_get_pool_free(void);
-void     stdf_mvc_dump_subjects(void);
-```
-
-### Payload 约定
+## 公开 API（v4 简化版）
 
 ```c
-typedef union {
-    void    *ptr;    /* 大 payload: 业务方拥有, emit 期间有效 */
-    int      i;
-    uint32_t u32;
-    uint64_t u64;
-    float    f;
-    double   d;
-    uint8_t  bytes[8];
-} stdf_mvc_signal_data_t;
+#include "stdf_mvc_api.h"
 
-/* 借用语义: ptr 指向的内存由 emit 方拥有, slot 调用期间必须有效 */
-/* emit_async: 框架会拷贝 union 8B, ptr 必须指向全局或长生命周期内存 */
+int stdf_mvc_api_subscribe(std_mvc_publisher_t   publisher,
+                            stdf_mvc_subject_id_t id,
+                            stdf_mvc_slot_fn_t   fn);
+
+int stdf_mvc_api_unsubscribe(std_mvc_publisher_t   publisher,
+                              stdf_mvc_subject_id_t id,
+                              stdf_mvc_slot_fn_t   fn);
+
+int stdf_mvc_api_publish(std_mvc_publisher_t   publisher,
+                          stdf_mvc_subject_id_t id,
+                          const void          *data,
+                          std_mvc_pub_type_t   pub_type);
+
+int stdf_mvc_api_read(stdf_mvc_subject_id_t id, void *data);
 ```
+
+> v4 设计：subscribe/unsubscribe 三参数；slot 回调的第一个参数是 `subject_id`（v5 起替代原 `user_data`，让一个 fn 能处理同一 publisher 的多个 subject）；publish 第 4 参数是 payload；read 是输出 buffer（仅 2 参数，由 subject ID 编译期决定复制多少字节，无需 buf_size）。
+
+### slot 回调签名
+
+```c
+typedef void (*stdf_mvc_slot_fn_t)(stdf_mvc_subject_id_t  subject_id,
+                                    std_mvc_publisher_t    publisher,
+                                    const void           *data);
+```
+
+### publisher 过滤
+
+| 常量 | 值 | 含义 |
+| :--- | :--- | :--- |
+| `STD_MVC_LOCAL` | `0` | 仅接收同 MCU 的 publish |
+| `STD_MVC_REMOTE` | `1` | 仅接收网络代理的 publish |
+| `STD_MVC_ANY` | `0x7F` | 接收所有 publisher 的 publish |
 
 ## 平台移植
 
-### 树莓派 (Linux)
+### Linux（验证环境）
 
-当前验证环境。链接 `stdf_mvc_port_linux.c` + `stdf_mvc_async.c`：
-- 互斥锁：`pthread_mutex`
-- 异步队列：`pthread` + condvar + 环形队列
-- tick 源：`clock_gettime(CLOCK_MONOTONIC)`
+`core/stdf_mvc_core_async_linux.c` + `core/stdf_mvc_core_port_linux.c`（pthread）。
 
-### 全志 F136 melis
+### 全志 melis（占位）
 
-替换为 `stdf_mvc_port_melis.c` + `stdf_mvc_async_melis.c`：
-- 互斥锁：用 `enter_critical` / `exit_critical` 嵌套计数器（建议对接 RTOS 调度锁）
-- 异步队列：melis `osMessageQ` 或主循环 `stdf_mvc_async_melis_poll()` 轮询
-- tick 源：`hal_sys_timer_get()`
-
-**移植步骤**：
-1. CMakeLists.txt 里把 `stdf_mvc_port_linux.c` 换成 `stdf_mvc_port_melis.c`
-2. CMakeLists.txt 里把 `stdf_mvc_async.c` 换成 `stdf_mvc_async_melis.c`
-3. 业务模块 `stdf_app_*.c` 链接对应的 HAL 实现（melis 上链接真实驱动而非 `stdf_app_hal_dummy.c`）
-4. 业务代码 **不动**
-
-## 已知问题 / 注意事项
-
-- `subject/stdf_mvc_subjects.h` 通过 CMake `-include stdf_mvc_subjects.h` 注入业务 subject 列表；这是为了让框架核心 `.c` 文件知道 `STDF_MVC_SUBJECT_COUNT`。其他工程复用时需在 CMake 中同步加 `-include`。
-- 异步发射 (`emit_async`) 满队列策略：**丢弃最新**，并返回 `-3`。业务方如需不丢请改 port 层（增大 `STDF_MVC_ASYNC_QUEUE_DEPTH` 或换阻塞策略）。
-- Slot 内可 `unsubscribe` 自身 / 其他 slot（链表安全），但不可 `unsubscribe` 哨兵节点（sentinel 不会被匹配）。
-- `stdf_mvc_dump_subjects()` 只打印 `count > 0` 的 subject；排查时调 `stdf_mvc_get_pool_used()` 看池用量。
-- Linux 平台用 `pthread_mutex` 做全局临界区；高频 emit 时锁竞争低（emit 期间不持锁）。melis 上若需要更高吞吐，可改为无锁队列 + 原子头指针。
+`core/stdf_mvc_core_port_melis.c` 提供空实现；异步改用 melis `osMessageQ` 或主循环轮询。
 
 ## 运行效果
 
-启动后每 5 秒打印一次 `dump_subjects()` 输出，类似：
+```
+[STD_MVC][I] stdf_mvc_core_init stdf_mvc_core init ok, subjects=303 pool=64 cache=16 bytes
+[STD_MVC][I] [APPS] std_mvc_apps_init init
+[STD_MVC][I] [DM-TEMP] std_mvc_dm_temperature_init (首次 CPU 温度已发布)
+[STD_MVC][I] [UI] std_mvc_ui_print_init print init
+[STD_MVC][I] [UI] on_temperature LOCAL temp: 47.34 C @ 1704000 ms
+[STD_MVC][I] main running... (Ctrl+C to exit)
+[STD_MVC][I] main === dump @ ... ms ===
+[STD_MVC][I] stdf_mvc_core_dispatch_dump === stdf_mvc subjects ===
+[STD_MVC][I] stdf_mvc_core_dispatch_dump   [1] dm.temperature: 1 subs
+[STD_MVC][I] stdf_mvc_core_dispatch_dump === pool: 1/64 used ===
+[STD_MVC][I] main shutting down...
+[STD_MVC][I] stdf_mvc_core_deinit stdf_mvc_core deinit ok
+```
 
-```
-[STDF][I] stdf_mvc_init stdf_mvc init ok, subjects=60 pool=4096
-[STDF][I] main running... (Ctrl+C to exit)
-[STDF][I] on_button [BTN] id=0 press
-[STDF][I] on_record_state [LED] RED ON  (recording, file=1)
-[STDF][I] on_tracking_state [LED] GREEN ON  (tracking id=124)
-[STDF][I] main === dump @ 5003 ms ===
-[STDF][I] stdf_mvc_emit_dump_subjects === stdf_mvc subjects ===
-[STDF][I] stdf_mvc_emit_dump_subjects   [3] video.record_state: 1 subs
-[STDF][I] stdf_mvc_emit_dump_subjects   [8] ai.detection_result: 1 subs
-[STDF][I] stdf_mvc_emit_dump_subjects   [9] ai.tracking_state: 2 subs
-[STDF][I] stdf_mvc_emit_dump_subjects   [32] button.pressed: 2 subs
-[STDF][I] stdf_mvc_emit_dump_subjects === pool: 70/4096 used ===
-[STDF][I] main pool: 70/4096 used
-```
+> 温度源：`/sys/class/thermal/thermal_zone0/temp`（Pi 5 SoC 温度）。首次 `init` 时主动 publish 一次，之后只有与上次发布的差值 ≥ 1°C 才再次 publish，避免热噪声导致刷屏。
 
 ## 参考资料
 
-- STDF 编码规范（项目内 `.cursor/rules/15-c-stdf.mdc`）
-- 相机数据域设计（项目内）
+- STDF 编码规范（项目内 `.cursor/rules/10-c.mdc`）

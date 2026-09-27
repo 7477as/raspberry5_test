@@ -9,52 +9,67 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 find_package(Threads REQUIRED)
+include(FindPkgConfig)
+pkg_check_modules(SDL2 sdl2)
+
+set(SUBSYSTEMS_H "${CMAKE_SOURCE_DIR}/subsystem/std_mvc_subsystems.h")
+
+set(APP_SOURCES
+    app/std_mvc_apps.c
+    app/dm/std_mvc_dm_temperature.c
+    app/net/std_mvc_net.c
+    app/camera/std_mvc_camera.c
+    app/ui/std_mvc_ui_print.c
+)
+
+if(SDL2_FOUND)
+    list(APPEND APP_SOURCES app/ui/std_mvc_ui_sdl.c)
+endif()
 
 add_executable(stdf_mvc_demo
     main.c
+    stdf_mvc_api.c
 
-    mvc/stdf_mvc.c
-    mvc/stdf_mvc_subject.c
-    mvc/stdf_mvc_pool.c
-    mvc/stdf_mvc_emit.c
-    mvc/stdf_mvc_async.c
-    mvc/stdf_mvc_port.c
-    mvc/stdf_mvc_port_linux.c
+    core/stdf_mvc_core.c
+    core/stdf_mvc_core_meta.c
+    core/stdf_mvc_core_subject.c
+    core/stdf_mvc_core_pool.c
+    core/stdf_mvc_core_data.c
+    core/stdf_mvc_core_dispatch.c
+    core/stdf_mvc_core_async_linux.c
+    core/stdf_mvc_core_port.c
+    core/stdf_mvc_core_port_linux.c
 
-    app/stdf_app.c
-    app/hal_dummy/stdf_app_hal_dummy.c
-    app/input_mock/stdf_app_input_mock.c
-    app/video/stdf_app_video.c
-    app/ai/stdf_app_ai.c
-    app/gimbal/stdf_app_gimbal.c
-    app/imu/stdf_app_imu.c
-    app/battery/stdf_app_battery.c
-    app/network/stdf_app_network.c
-    app/storage/stdf_app_storage.c
-    app/indicator/stdf_app_indicator.c
+    ${APP_SOURCES}
 )
 
 target_include_directories(stdf_mvc_demo PRIVATE
     ${CMAKE_SOURCE_DIR}
-    ${CMAKE_SOURCE_DIR}/mvc
-    ${CMAKE_SOURCE_DIR}/subject
-    ${CMAKE_SOURCE_DIR}/payload
+    ${CMAKE_SOURCE_DIR}/core
+    ${CMAKE_SOURCE_DIR}/util
+    ${CMAKE_SOURCE_DIR}/subsystem
+    ${CMAKE_SOURCE_DIR}/subsystem/dm
+    ${CMAKE_SOURCE_DIR}/subsystem/net
+    ${CMAKE_SOURCE_DIR}/subsystem/camera
+    ${CMAKE_SOURCE_DIR}/subsystem/ui
     ${CMAKE_SOURCE_DIR}/app
-    ${CMAKE_SOURCE_DIR}/app/hal_dummy
-    ${CMAKE_SOURCE_DIR}/app/input_mock
-    ${CMAKE_SOURCE_DIR}/app/video
-    ${CMAKE_SOURCE_DIR}/app/ai
-    ${CMAKE_SOURCE_DIR}/app/gimbal
-    ${CMAKE_SOURCE_DIR}/app/imu
-    ${CMAKE_SOURCE_DIR}/app/battery
-    ${CMAKE_SOURCE_DIR}/app/network
-    ${CMAKE_SOURCE_DIR}/app/storage
-    ${CMAKE_SOURCE_DIR}/app/indicator
+    ${CMAKE_SOURCE_DIR}/app/dm
+    ${CMAKE_SOURCE_DIR}/app/net
+    ${CMAKE_SOURCE_DIR}/app/camera
+    ${CMAKE_SOURCE_DIR}/app/ui
 )
 
 target_compile_options(stdf_mvc_demo PRIVATE
     -Wall -Wextra -Wpedantic -Wshadow -Wstrict-prototypes
-    -include ${CMAKE_SOURCE_DIR}/subject/stdf_mvc_subjects.h
+    -include "${SUBSYSTEMS_H}"
 )
 
+target_compile_definitions(stdf_mvc_demo PRIVATE _POSIX_C_SOURCE=200809L)
+
 target_link_libraries(stdf_mvc_demo PRIVATE Threads::Threads)
+
+if(SDL2_FOUND)
+    target_compile_definitions(stdf_mvc_demo PRIVATE STDF_MVC_HAS_SDL2)
+    target_include_directories(stdf_mvc_demo PRIVATE ${SDL2_INCLUDE_DIRS})
+    target_link_libraries(stdf_mvc_demo PRIVATE ${SDL2_LIBRARIES})
+endif()

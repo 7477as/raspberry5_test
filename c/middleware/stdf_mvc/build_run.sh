@@ -18,6 +18,11 @@ if ! command -v gcc >/dev/null 2>&1; then
     exit 127
 fi
 
+if ! pkg-config --exists sdl2 2>/dev/null; then
+    echo "[WARN] sdl2 未检测到，SDL2 UI 模块将被跳过" >&2
+    echo "       完整 UI: sudo apt install libsdl2-dev" >&2
+fi
+
 case "${cmd}" in
     build)
         cmake -S "${SCRIPT_DIR}" -B "${BUILD_DIR}" \
@@ -34,11 +39,9 @@ case "${cmd}" in
         exec "${BASH_SOURCE[0]}" build
         ;;
     run|"")
-        if [[ ! -x "${TARGET_BIN}" || "${NORUN:-0}" != "1" ]]; then
-            cmake -S "${SCRIPT_DIR}" -B "${BUILD_DIR}" \
-                -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" >/dev/null
-            cmake --build "${BUILD_DIR}" -j"$(nproc)"
-        fi
+        cmake -S "${SCRIPT_DIR}" -B "${BUILD_DIR}" \
+            -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" >/dev/null
+        cmake --build "${BUILD_DIR}" -j"$(nproc)"
         echo "[OK] run -> ${TARGET_BIN}"
         exec "${TARGET_BIN}"
         ;;
