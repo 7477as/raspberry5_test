@@ -45,7 +45,7 @@ sudo usermod -aG audio "$USER"
 ## 构建与运行
 
 ```bash
-cd cpp/audio/aec_webrtcdsp
+cd cpp/audio/gstreamer/gst_aec_webrtcdsp
 chmod +x build_run.sh
 ./build_run.sh                       # 默认：按参考音频全长实时录制
 ```
