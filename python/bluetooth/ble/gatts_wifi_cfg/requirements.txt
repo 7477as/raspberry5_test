@@ -1,0 +1,4 @@
+# BLE GATT service
+bluezero>=0.7.0,<1.0
+# Optional real BLE client
+bleak>=0.21,<1
