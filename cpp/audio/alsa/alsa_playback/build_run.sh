@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-EXE_NAME="alsa_playback"
+EXE_NAME="alsa_playback_app"
+TEST_NAME="alsa_playback_tests"
 BUILD_TYPE="${BUILD_TYPE:-Release}"
 JOBS="$(nproc 2>/dev/null || echo 2)"
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -19,7 +20,7 @@ case "${SUBCMD}" in
         SUBCMD="run"
         shift || true
         ;;
-    build|run)
+    build|run|test)
         shift || true
         ;;
     *)
@@ -36,7 +37,6 @@ require_command() {
 }
 
 require_command cmake cmake
-require_command make build-essential
 require_command pkg-config pkg-config
 
 if ! pkg-config --exists alsa; then
@@ -51,10 +51,16 @@ cmake -S "${SRC_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" \
 cmake --build "${BUILD_DIR}" -j "${JOBS}" \
     | tee "${LOG_DIR}/build.log"
 
+if [[ "${SUBCMD}" == "build" || "${NORUN:-0}" == "1" ]]; then
+    exit 0
+fi
+
+if [[ "${SUBCMD}" == "test" ]]; then
+    ctest --test-dir "${BUILD_DIR}" --output-on-failure
+    exit 0
+fi
+
 EXE="${BUILD_DIR}/${EXE_NAME}"
 [[ -x "${EXE}" ]] || { echo "[build_run] 未找到可执行文件: ${EXE}"; exit 1; }
-
-[[ "${SUBCMD}" == "build" || "${NORUN:-0}" == "1" ]] && exit 0
-
 cd "${SRC_DIR}"
 exec "${EXE}" "$@"
