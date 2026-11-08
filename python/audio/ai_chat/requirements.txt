@@ -1,0 +1,7 @@
+numpy>=1.26,<2
+edge-tts>=1.2,<2
+ollama>=0.4,<1
+# sherpa-ncnn 通过系统包或官方 wheel 安装，未发布到 PyPI 时可手动安装：
+# pip install sherpa-ncnn
+# PyGObject / GStreamer 请用 apt 安装（见 README）：
+# sudo apt install python3-gi gir1.2-gstreamer-1.0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-alsa

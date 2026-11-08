@@ -23,7 +23,9 @@ class EdgeTTS:
         # 启动 mpv 进程，设置为从 stdin (标准输入) 读取数据
         # "-" 表示读取管道流
         # --no-cache --profile=low-latency: 最小化延迟
-        cmd = ["mpv", "--no-cache", "--no-terminal", "--profile=low-latency", "-"]
+        cmd = ["mpv", "--no-cache", "--no-terminal", "--profile=low-latency"]
+        cmd += config.mpv_audio_args()
+        cmd += ["-"]
         
         process = subprocess.Popen(
             cmd,
