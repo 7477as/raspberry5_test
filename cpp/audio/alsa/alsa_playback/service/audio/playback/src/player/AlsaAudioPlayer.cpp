@@ -30,6 +30,10 @@ PlayerState AlsaAudioPlayer::State() const {
     return mEngine->State();
 }
 
+bool AlsaAudioPlayer::IsDeviceOpen() const {
+    return mEngine->IsDeviceOpen();
+}
+
 SessionId AlsaAudioPlayer::CreateSession(const AudioSessionConfig& config, std::string& error) {
     return mEngine->CreateSession(config, error);
 }

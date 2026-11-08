@@ -56,13 +56,13 @@ bool ParseCommandLine(int argc, char** argv, CommandLineOptions& options, std::s
         const std::string value = argv[++index];
         std::uint32_t number = 0;
         if (flag == "--device") {
-            options.serviceConfig.deviceHint = value;
+            options.sessionConfig.deviceHint = value;
         } else if (flag == "--music-file") {
             options.musicFile = value;
         } else if (flag == "--rate" && ParseUnsigned(value, number, 192000)) {
-            options.serviceConfig.outputFormat.sampleRate = number;
+            options.sessionConfig.outputFormat.sampleRate = number;
         } else if (flag == "--channels" && ParseUnsigned(value, number, 32)) {
-            options.serviceConfig.outputFormat.channels = number;
+            options.sessionConfig.outputFormat.channels = number;
         } else if (flag == "--duration" && ParseUnsigned(value, number, 86400, true)) {
             options.durationSeconds = number;
         } else if (flag == "--prompt-delay" && ParseUnsigned(value, number, 3600, true)) {

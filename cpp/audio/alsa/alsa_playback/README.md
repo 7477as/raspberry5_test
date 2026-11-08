@@ -4,9 +4,51 @@
 
 ## 功能简介
 
-本示例按 `service/audio/playback` 单头服务与 `app` 演示分层。`MusicPlayer` 持有 `AudioPlaybackService` 会话并逐块推流音乐 WAV，使用有状态线性插值完成采样率转换；`PromptPlayer` 持有独立提示音会话并在延迟后提交一次解码结果；`Main.cpp` 只负责信号、参数、`Open/Start/Stop/Close` 生命周期和退出条件，与音乐混音到同一个 ALSA playback 设备。
+本示例分为应用层和播放服务两部分。`Main` 负责信号、参数解析和播放流程编排；`MusicPlayer` 逐块读取音乐 WAV 并完成重采样后推流，`PromptPlayer` 在启动时解码提示音 WAV 并在延迟后提交；两个播放器各持一个 `PlaybackSession`，混音后输出到同一个 ALSA playback 设备。
 
-与裸 ALSA 示例相比，本模块提供 session 隔离、队列容量控制、停止唤醒和统计信息。与 GStreamer、PipeWire 或 MediaMTX 相比，它保留对 ALSA 设备和 PCM 参数的直接控制，适合树莓派上的板级播放、提示音和多业务音频共享。
+与裸 ALSA 示例相比，本模块提供多会话隔离、队列容量控制、停止唤醒和统计信息。与 GStreamer、PipeWire 或 MediaMTX 相比，它保留对 ALSA 设备和 PCM 参数的直接控制，适合树莓派上的板级播放、提示音和多业务音频共享。
+
+## 软件架构
+
+```mermaid
+flowchart TD
+    subgraph 第一层 ["应用层"]
+        direction LR
+        mainApp["Main"]
+        musicPlayer["MusicPlayer"]
+        promptPlayer["PromptPlayer"]
+    end
+    subgraph 第二层 ["会话层"]
+        direction LR
+        sessionA["PlaybackSession音乐"]
+        sessionB["PlaybackSession提示音"]
+    end
+    subgraph 第三层 ["播放引擎层"]
+        direction LR
+        sessionTable["SessionRegistry"]
+        audioMixer["AudioMixer"]
+        effectChain["AudioEffectChain"]
+        playerEngine["PlayerEngine"]
+    end
+    subgraph 第四层 ["声卡输出层"]
+        alsaOut["AlsaPcmOutput"]
+    end
+    mainApp --> musicPlayer
+    mainApp --> promptPlayer
+    musicPlayer --> sessionA
+    promptPlayer --> sessionB
+    sessionA --> playerEngine
+    sessionB --> playerEngine
+    playerEngine --> sessionTable
+    playerEngine --> audioMixer
+    audioMixer --> effectChain
+    effectChain --> alsaOut
+```
+
+- 应用层：`Main` 编排流程，`MusicPlayer` 推音乐流，`PromptPlayer` 推提示音流。
+- 会话层：每个播放器持有独立 `PlaybackSession`，对外提供 `Open`、`Write`、`Close`。
+- 播放引擎层：`PlayerEngine` 持有会话表、混音器和效果链；存在会话时打开声卡并启动混音线程，无会话时关闭声卡并停止线程。
+- 声卡输出层：`AlsaPcmOutput` 封装 ALSA 设备打开、写入和关闭。
 
 ## 依赖 / 环境
 
@@ -75,9 +117,9 @@ BUILD_TYPE=Debug ./build_run.sh build
 
 ```text
 alsa_playback/
-├── app/                       # Main 生命周期、命令行、音乐和提示音演示业务
-├── service/audio/playback/    # 对外单头服务与内部实现
-│   ├── include/               # AudioPlaybackService.h
+├── app/                       # 播放流程编排、命令行、音乐和提示音播放器
+├── service/audio/playback/    # 播放会话、播放引擎与内部实现
+│   ├── include/               # PlaybackSession.h
 │   └── src/                   # format/player/session/mixer/effect/device/statistics
 └── tests/                     # 不依赖真实声卡的单元测试
 ```

@@ -16,14 +16,13 @@ PromptPlayer::~PromptPlayer() {
     Close(ignored);
 }
 
-bool PromptPlayer::Open(audio_service::AudioPlaybackService& playbackService,
-                        const audio_service::AudioFormat& outputFormat,
+bool PromptPlayer::Open(const PlaybackSessionConfig& sessionConfig,
                         const std::string& filePath,
                         std::chrono::milliseconds pushTimeout,
                         std::string& error) {
     std::string ignored;
     Close(ignored);
-    if (!outputFormat.IsValid()) {
+    if (!sessionConfig.outputFormat.IsValid()) {
         error = "提示音输出格式无效";
         return false;
     }
@@ -46,7 +45,7 @@ bool PromptPlayer::Open(audio_service::AudioPlaybackService& playbackService,
                                       error)) {
         return false;
     }
-    AudioResampler resampler(inputFormat.sampleRate, outputFormat.sampleRate,
+    AudioResampler resampler(inputFormat.sampleRate, sessionConfig.outputFormat.sampleRate,
                              inputFormat.channels);
     std::vector<float> outputFloat;
     resampler.Process(inputFloat, outputFloat);
@@ -55,21 +54,19 @@ bool PromptPlayer::Open(audio_service::AudioPlaybackService& playbackService,
         return false;
     }
     std::vector<float> mappedSamples;
-    if (!ChannelMapper::MapInterleaved(outputFloat, inputFormat.channels, outputFormat.channels,
-                                      mappedSamples, error)) {
+    if (!ChannelMapper::MapInterleaved(outputFloat, inputFormat.channels,
+                                      sessionConfig.outputFormat.channels, mappedSamples, error)) {
         return false;
     }
     mSamples = std::move(mappedSamples);
-    mOutputFormat = outputFormat;
+    mOutputFormat = sessionConfig.outputFormat;
     mPushTimeout = pushTimeout;
-    mService = &playbackService;
-    audio_service::SessionConfig sessionConfig;
-    sessionConfig.name = "prompt";
-    sessionConfig.volume = 0.45F;
-    sessionConfig.priority = 10;
-    mSessionId = playbackService.CreateSession(sessionConfig, error);
-    if (mSessionId == audio_service::kInvalidSession) {
-        mService = nullptr;
+    PlaybackSessionConfig config = sessionConfig;
+    config.session.name = "prompt";
+    config.session.volume = 0.45F;
+    config.session.priority = 10;
+    if (!mSession.Open(config, error)) {
+        mSamples.clear();
         return false;
     }
     return true;
@@ -77,9 +74,6 @@ bool PromptPlayer::Open(audio_service::AudioPlaybackService& playbackService,
 
 void PromptPlayer::Play(std::chrono::steady_clock::time_point triggerTime) {
     StopThread();
-    if (mService == nullptr || mSessionId == audio_service::kInvalidSession) {
-        return;
-    }
     mStopRequested.store(false, std::memory_order_release);
     mDone.store(false, std::memory_order_release);
     mSucceeded = true;
@@ -88,14 +82,11 @@ void PromptPlayer::Play(std::chrono::steady_clock::time_point triggerTime) {
 }
 
 void PromptPlayer::Close(std::string& error) {
-    StopThread();
+    JoinThread();
     error = mError;
-    if (mService != nullptr && mSessionId != audio_service::kInvalidSession) {
-        mService->DestroySession(mSessionId);
-        mSessionId = audio_service::kInvalidSession;
-    }
+    std::string ignored;
+    mSession.Close(ignored);
     mSamples.clear();
-    mService = nullptr;
 }
 
 void PromptPlayer::Run(std::chrono::steady_clock::time_point triggerTime) {
@@ -113,8 +104,7 @@ void PromptPlayer::Run(std::chrono::steady_clock::time_point triggerTime) {
         const std::size_t remainingFrames = totalFrames - submittedFrames;
         const std::size_t blockFrames = std::min(kPromptPushFrames, remainingFrames);
         const float* samples = mSamples.data() + submittedFrames * mOutputFormat.channels;
-        const audio_service::PushResult result =
-            mService->PushBlocking(mSessionId, samples, blockFrames, mOutputFormat, mPushTimeout);
+        const PushResult result = mSession.Write(samples, blockFrames, mPushTimeout);
         if (!result.IsSuccess()) {
             error = result.message;
             succeeded = false;
@@ -129,6 +119,10 @@ void PromptPlayer::Run(std::chrono::steady_clock::time_point triggerTime) {
 
 void PromptPlayer::StopThread() {
     mStopRequested.store(true, std::memory_order_release);
+    JoinThread();
+}
+
+void PromptPlayer::JoinThread() {
     if (mThread.joinable()) {
         mThread.join();
     }

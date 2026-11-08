@@ -10,6 +10,7 @@ void RunAudioMixerTest();
 void RunBypassEffectTest();
 void RunPcmConverterTest();
 void RunAlsaDeviceCatalogTest();
+void RunDeviceOpenOnDemandTest();
 }
 
 int main() {
@@ -22,6 +23,7 @@ int main() {
         alsa_playback::tests::RunBypassEffectTest();
         alsa_playback::tests::RunPcmConverterTest();
         alsa_playback::tests::RunAlsaDeviceCatalogTest();
+        alsa_playback::tests::RunDeviceOpenOnDemandTest();
     } catch (const std::exception& exception) {
         std::cerr << exception.what() << '\n';
         return 1;

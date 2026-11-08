@@ -29,12 +29,7 @@ bool PlayerEngine::Open(const PlayerConfig& config, std::string& error) {
         }
         return false;
     }
-    auto output = std::make_unique<AlsaPcmOutput>();
-    if (!output->Open(config.deviceName, config.pcm, error)) {
-        return false;
-    }
     mConfig = config;
-    mOutput = std::move(output);
     mSessions = std::make_unique<SessionRegistry>(config.maxSessions, config.pcm.format.channels);
     mMixer = std::make_unique<AudioMixer>(MixerConfig{config.pcm.format.channels, true, true});
     mMixSamples.resize(config.mixBlockFrames * config.pcm.format.channels);
@@ -47,43 +42,23 @@ bool PlayerEngine::Open(const PlayerConfig& config, std::string& error) {
 }
 
 bool PlayerEngine::Start(std::string& error) {
+    if (HasSessions()) {
+        return EnsureRunning(error);
+    }
     std::lock_guard<std::mutex> lock(mStateMutex);
-    if (mState != PlayerState::Opened) {
+    if (mState != PlayerState::Opened && mState != PlayerState::Running) {
         error = "播放器当前状态不允许启动";
         return false;
     }
-    mStopRequested.store(false, std::memory_order_release);
-    if (mSessions != nullptr) {
-        mSessions->ReopenAll();
-    }
-    try {
-        mThread = std::thread(&PlayerEngine::Run, this);
-    } catch (const std::exception& exception) {
-        error = std::string("创建播放线程失败: ") + exception.what();
-        mState = PlayerState::Error;
-        return false;
-    }
-    mState = PlayerState::Running;
     return true;
 }
 
 void PlayerEngine::Stop() {
-    mStopRequested.store(true, std::memory_order_release);
-    if (mSessions != nullptr) {
-        mSessions->CloseAll();
-    }
-    mWakeCondition.notify_all();
-    if (mThread.joinable()) {
-        mThread.join();
-    }
-    std::lock_guard<std::mutex> lock(mStateMutex);
-    if (mState != PlayerState::Closed) {
-        mState = mOutput != nullptr && mOutput->IsOpen() ? PlayerState::Opened : PlayerState::Closed;
-    }
+    ShutdownDevice();
 }
 
 void PlayerEngine::Close() {
-    Stop();
+    ShutdownDevice();
     if (mSessions != nullptr) {
         mSessions->Clear();
     }
@@ -97,6 +72,18 @@ void PlayerEngine::Close() {
 PlayerState PlayerEngine::State() const {
     std::lock_guard<std::mutex> lock(mStateMutex);
     return mState;
+}
+
+bool PlayerEngine::HasSessions() const {
+    return mSessions != nullptr && mSessions->Size() != 0;
+}
+
+bool PlayerEngine::IsDeviceOpen() const {
+    return mOutput != nullptr && mOutput->IsOpen();
+}
+
+std::size_t PlayerEngine::SessionCount() const {
+    return mSessions == nullptr ? 0 : mSessions->Size();
 }
 
 SessionId PlayerEngine::CreateSession(const AudioSessionConfig& config, std::string& error) {
@@ -113,11 +100,22 @@ SessionId PlayerEngine::CreateSession(const AudioSessionConfig& config, std::str
         return kInvalidSessionId;
     }
     const auto session = mSessions->Create(config, error);
-    return session == nullptr ? kInvalidSessionId : session->Id();
+    if (session == nullptr) {
+        return kInvalidSessionId;
+    }
+    if (!EnsureRunning(error)) {
+        mSessions->Remove(session->Id());
+        return kInvalidSessionId;
+    }
+    return session->Id();
 }
 
 bool PlayerEngine::DestroySession(SessionId sessionId) {
-    return mSessions != nullptr && mSessions->Remove(sessionId);
+    const bool removed = mSessions != nullptr && mSessions->Remove(sessionId);
+    if (removed && !HasSessions()) {
+        ShutdownDevice();
+    }
+    return removed;
 }
 
 bool PlayerEngine::FlushSession(SessionId sessionId) {
@@ -155,8 +153,11 @@ PushResult PlayerEngine::PushPcmInternal(SessionId sessionId,
                                          const AudioFormat& inputFormat,
                                          std::chrono::milliseconds timeout,
                                          bool blocking) {
-    if (State() == PlayerState::Closed || mSessions == nullptr ||
-        (blocking && (State() != PlayerState::Running || mStopRequested.load(std::memory_order_acquire)))) {
+    if (State() == PlayerState::Closed || mSessions == nullptr || mOutput == nullptr ||
+        !mOutput->IsOpen()) {
+        return {PushError::NotRunning, 0, "播放器尚未打开"};
+    }
+    if (blocking && (State() != PlayerState::Running || mStopRequested.load(std::memory_order_acquire))) {
         return {PushError::NotRunning, 0, "播放器尚未打开"};
     }
     const auto session = mSessions->Find(sessionId);
@@ -237,6 +238,57 @@ void PlayerEngine::Run() {
             std::unique_lock<std::mutex> lock(mWakeMutex);
             mWakeCondition.wait_for(lock, std::chrono::milliseconds(5));
         }
+    }
+}
+
+bool PlayerEngine::EnsureRunning(std::string& error) {
+    {
+        std::lock_guard<std::mutex> lock(mStateMutex);
+        if (mState == PlayerState::Running) {
+            return true;
+        }
+        if (mState != PlayerState::Opened) {
+            error = "播放器当前状态不允许启动";
+            return false;
+        }
+    }
+    if (mOutput == nullptr) {
+        mOutput = std::make_unique<AlsaPcmOutput>();
+    }
+    if (!mOutput->IsOpen() && !mOutput->Open(mConfig.deviceName, mConfig.pcm, error)) {
+        mOutput.reset();
+        return false;
+    }
+    mStopRequested.store(false, std::memory_order_release);
+    if (mSessions != nullptr) {
+        mSessions->ReopenAll();
+    }
+    try {
+        mThread = std::thread(&PlayerEngine::Run, this);
+    } catch (const std::exception& exception) {
+        error = std::string("创建播放线程失败: ") + exception.what();
+        mOutput->Close();
+        std::lock_guard<std::mutex> lock(mStateMutex);
+        mState = PlayerState::Error;
+        return false;
+    }
+    std::lock_guard<std::mutex> lock(mStateMutex);
+    mState = PlayerState::Running;
+    return true;
+}
+
+void PlayerEngine::ShutdownDevice() {
+    mStopRequested.store(true, std::memory_order_release);
+    mWakeCondition.notify_all();
+    if (mThread.joinable()) {
+        mThread.join();
+    }
+    if (mOutput != nullptr) {
+        mOutput->Close();
+    }
+    std::lock_guard<std::mutex> lock(mStateMutex);
+    if (mState != PlayerState::Closed) {
+        mState = PlayerState::Opened;
     }
 }
 

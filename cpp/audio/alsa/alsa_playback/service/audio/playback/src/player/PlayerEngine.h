@@ -31,6 +31,9 @@ public:
     void Stop();
     void Close();
     PlayerState State() const;
+    bool HasSessions() const;
+    std::size_t SessionCount() const;
+    bool IsDeviceOpen() const;
     SessionId CreateSession(const AudioSessionConfig& config, std::string& error);
     bool DestroySession(SessionId sessionId);
     bool FlushSession(SessionId sessionId);
@@ -49,6 +52,8 @@ public:
     AudioStatisticsSnapshot Statistics() const;
 
 private:
+    bool EnsureRunning(std::string& error);
+    void ShutdownDevice();
     PushResult PushPcmInternal(SessionId sessionId,
                                const void* inputData,
                                std::size_t frameCount,

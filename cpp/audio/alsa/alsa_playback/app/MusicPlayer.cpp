@@ -16,36 +16,32 @@ MusicPlayer::~MusicPlayer() {
     Close(ignored);
 }
 
-bool MusicPlayer::Open(audio_service::AudioPlaybackService& playbackService,
-                       const audio_service::AudioFormat& outputFormat,
+bool MusicPlayer::Open(const PlaybackSessionConfig& sessionConfig,
                        const std::string& filePath,
                        std::chrono::milliseconds pushTimeout,
                        std::string& error) {
     std::string ignored;
     Close(ignored);
-    if (!outputFormat.IsValid()) {
+    if (!sessionConfig.outputFormat.IsValid()) {
         error = "音乐输出格式无效";
         return false;
     }
     if (!mReader.Open(filePath, error)) {
         return false;
     }
-    mService = &playbackService;
-    mInputFormat = audio_service::AudioFormat{mReader.Format().sampleRate,
-                                              mReader.Format().channels};
-    mOutputFormat = outputFormat;
+    mInputFormat = AudioFormat{mReader.Format().sampleRate, mReader.Format().channels};
+    mOutputFormat = sessionConfig.outputFormat;
     mPushTimeout = pushTimeout;
     mStartTime = std::chrono::steady_clock::now();
     mResampler = std::make_unique<AudioResampler>(mReader.Format().sampleRate,
-                                                  outputFormat.sampleRate,
+                                                  sessionConfig.outputFormat.sampleRate,
                                                   mReader.Format().channels);
-    audio_service::SessionConfig sessionConfig;
-    sessionConfig.name = "music";
-    sessionConfig.volume = 0.45F;
-    sessionConfig.priority = 0;
-    mSessionId = playbackService.CreateSession(sessionConfig, error);
-    if (mSessionId == audio_service::kInvalidSession) {
-        mService = nullptr;
+    PlaybackSessionConfig config = sessionConfig;
+    config.session.name = "music";
+    config.session.volume = 0.45F;
+    config.session.priority = 0;
+    if (!mSession.Open(config, error)) {
+        mResampler.reset();
         return false;
     }
     mPendingSamples.clear();
@@ -57,9 +53,6 @@ bool MusicPlayer::Open(audio_service::AudioPlaybackService& playbackService,
 
 void MusicPlayer::Play(const std::atomic<bool>& externalStop, std::uint32_t durationSeconds) {
     StopThread();
-    if (mService == nullptr || mSessionId == audio_service::kInvalidSession) {
-        return;
-    }
     mExternalStop = &externalStop;
     mDurationSeconds = durationSeconds;
     mStopRequested.store(false, std::memory_order_release);
@@ -70,14 +63,11 @@ void MusicPlayer::Play(const std::atomic<bool>& externalStop, std::uint32_t dura
 }
 
 bool MusicPlayer::Close(std::string& error) {
-    StopThread();
+    JoinThread();
     error = mError;
     const bool succeeded = mSucceeded;
-    if (mService != nullptr && mSessionId != audio_service::kInvalidSession) {
-        mService->DestroySession(mSessionId);
-        mSessionId = audio_service::kInvalidSession;
-    }
-    mService = nullptr;
+    std::string ignored;
+    mSession.Close(ignored);
     mResampler.reset();
     mPendingSamples.clear();
     mEndOfFile = false;
@@ -121,8 +111,8 @@ bool MusicPlayer::SubmitNextBlock(std::string& error) {
     }
     const std::size_t pendingFrames = mPendingSamples.size() / mOutputFormat.channels;
     const std::size_t blockFrames = std::min(kBlockFrames, pendingFrames);
-    const audio_service::PushResult result = mService->PushBlocking(
-        mSessionId, mPendingSamples.data(), blockFrames, mOutputFormat, mPushTimeout);
+    const PushResult result =
+        mSession.Write(mPendingSamples.data(), blockFrames, mPushTimeout);
     if (!result.IsSuccess()) {
         error = result.message;
         return false;
@@ -163,18 +153,19 @@ void MusicPlayer::Run() {
 }
 
 void MusicPlayer::WaitUntilDrained() {
-    if (mService == nullptr || mSessionId == audio_service::kInvalidSession) {
-        return;
-    }
     while (!mStopRequested.load(std::memory_order_acquire) &&
            (mExternalStop == nullptr || !mExternalStop->load(std::memory_order_acquire)) &&
-           mService->QueuedFrames(mSessionId) != 0) {
+           mSession.QueuedFrames() != 0) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 }
 
 void MusicPlayer::StopThread() {
     mStopRequested.store(true, std::memory_order_release);
+    JoinThread();
+}
+
+void MusicPlayer::JoinThread() {
     if (mThread.joinable()) {
         mThread.join();
     }

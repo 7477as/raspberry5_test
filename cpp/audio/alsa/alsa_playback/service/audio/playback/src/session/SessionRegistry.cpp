@@ -47,6 +47,11 @@ bool SessionRegistry::Remove(SessionId id) {
     return true;
 }
 
+std::size_t SessionRegistry::Size() const {
+    std::lock_guard<std::mutex> lock(mMutex);
+    return mSessions.size();
+}
+
 std::vector<std::shared_ptr<AudioSession>> SessionRegistry::Snapshot() const {
     std::lock_guard<std::mutex> lock(mMutex);
     return mSessions;

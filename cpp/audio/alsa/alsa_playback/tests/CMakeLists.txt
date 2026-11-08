@@ -10,11 +10,13 @@ add_executable(alsa_playback_tests
     effect/BypassEffectTest.cpp
     format/PcmConverterTest.cpp
     device/AlsaDeviceCatalogTest.cpp
+    player/DeviceOpenOnDemandTest.cpp
 )
 
 target_include_directories(alsa_playback_tests
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/..
+        ${CMAKE_CURRENT_SOURCE_DIR}/../service/audio/playback/include
         ${CMAKE_CURRENT_SOURCE_DIR}/../service/audio/playback/src
 )
 target_compile_options(alsa_playback_tests PRIVATE -Wall -Wextra -Wpedantic)

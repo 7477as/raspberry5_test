@@ -1,6 +1,6 @@
 #pragma once
 
-#include "AudioPlaybackService.h"
+#include "PlaybackSession.h"
 #include "service/audio/playback/src/format/AudioResampler.h"
 #include "service/audio/playback/src/format/WavFileReader.h"
 
@@ -23,8 +23,7 @@ public:
     MusicPlayer(const MusicPlayer&) = delete;
     MusicPlayer& operator=(const MusicPlayer&) = delete;
 
-    bool Open(audio_service::AudioPlaybackService& playbackService,
-              const audio_service::AudioFormat& outputFormat,
+    bool Open(const PlaybackSessionConfig& sessionConfig,
               const std::string& filePath,
               std::chrono::milliseconds pushTimeout,
               std::string& error);
@@ -37,13 +36,13 @@ private:
     void Run();
     void WaitUntilDrained();
     void StopThread();
+    void JoinThread();
 
     static constexpr std::size_t kBlockFrames = 1024;
     static constexpr std::size_t kWavReadFrames = 2048;
-    audio_service::AudioPlaybackService* mService = nullptr;
-    audio_service::SessionHandle mSessionId = audio_service::kInvalidSession;
-    audio_service::AudioFormat mInputFormat{};
-    audio_service::AudioFormat mOutputFormat{};
+    PlaybackSession mSession;
+    AudioFormat mInputFormat{};
+    AudioFormat mOutputFormat{};
     std::chrono::milliseconds mPushTimeout{100};
     std::chrono::steady_clock::time_point mStartTime{};
     WavFileReader mReader;

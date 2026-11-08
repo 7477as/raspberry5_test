@@ -1,6 +1,6 @@
 #pragma once
 
-#include "AudioPlaybackService.h"
+#include "PlaybackSession.h"
 
 #include <chrono>
 #include <cstdint>
@@ -9,7 +9,7 @@
 namespace alsa_playback {
 
 struct CommandLineOptions {
-    audio_service::ServiceConfig serviceConfig{};
+    PlaybackSessionConfig sessionConfig{};
     std::string musicFile = "/home/moyuping/work/audio/testAudio/test.wav";
     std::string promptFile = "/home/moyuping/work/audio/testAudio/sms_alert_hello.wav";
     std::chrono::seconds promptDelay{5};

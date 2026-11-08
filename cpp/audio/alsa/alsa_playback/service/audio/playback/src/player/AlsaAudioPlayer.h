@@ -31,6 +31,7 @@ public:
     void Stop();
     void Close();
     PlayerState State() const;
+    bool IsDeviceOpen() const;
 
     SessionId CreateSession(const AudioSessionConfig& config, std::string& error);
     bool DestroySession(SessionId sessionId);

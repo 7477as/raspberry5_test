@@ -15,7 +15,7 @@ pkg_check_modules(ALSA REQUIRED alsa)
 enable_testing()
 
 set(ALSA_PLAYBACK_SERVICE_SOURCES
-    service/audio/playback/src/ServiceImpl.cpp
+    service/audio/playback/src/PlaybackSession.cpp
     service/audio/playback/src/format/AudioFormat.cpp
     service/audio/playback/src/format/AudioResampler.cpp
     service/audio/playback/src/format/WavFileReader.cpp
@@ -62,6 +62,7 @@ add_executable(alsa_playback_app
 target_include_directories(alsa_playback_app
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/service/audio/playback/include
         ${CMAKE_CURRENT_SOURCE_DIR}/service/audio/playback/src
 )
 target_compile_options(alsa_playback_app PRIVATE -Wall -Wextra -Wpedantic)

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "AudioPlaybackService.h"
+#include "PlaybackSession.h"
 
 #include <atomic>
 #include <chrono>
@@ -19,8 +19,7 @@ public:
     PromptPlayer(const PromptPlayer&) = delete;
     PromptPlayer& operator=(const PromptPlayer&) = delete;
 
-    bool Open(audio_service::AudioPlaybackService& playbackService,
-              const audio_service::AudioFormat& outputFormat,
+    bool Open(const PlaybackSessionConfig& sessionConfig,
               const std::string& filePath,
               std::chrono::milliseconds pushTimeout,
               std::string& error);
@@ -32,10 +31,10 @@ private:
 
     void Run(std::chrono::steady_clock::time_point triggerTime);
     void StopThread();
+    void JoinThread();
 
-    audio_service::AudioPlaybackService* mService = nullptr;
-    audio_service::SessionHandle mSessionId = audio_service::kInvalidSession;
-    audio_service::AudioFormat mOutputFormat{};
+    PlaybackSession mSession;
+    AudioFormat mOutputFormat{};
     std::chrono::milliseconds mPushTimeout{100};
     std::vector<float> mSamples;
     std::atomic<bool> mStopRequested{true};

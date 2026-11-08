@@ -16,6 +16,7 @@ public:
     std::shared_ptr<AudioSession> Create(AudioSessionConfig config, std::string& error);
     std::shared_ptr<AudioSession> Find(SessionId id) const;
     bool Remove(SessionId id);
+    std::size_t Size() const;
     std::vector<std::shared_ptr<AudioSession>> Snapshot() const;
     void Clear();
     void CloseAll();
