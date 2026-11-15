@@ -1,0 +1,16 @@
+/* stdf_mvc compile-time configuration. */
+#ifndef __STDF_MVC_CORE_CONFIG_H__
+#define __STDF_MVC_CORE_CONFIG_H__
+#ifndef STDF_MVC_MAX_SUBS_PER_SUBJECT
+#define STDF_MVC_MAX_SUBS_PER_SUBJECT 4u
+#endif
+#ifndef STDF_MVC_CORE_SUB_CHANGE_LOG
+#define STDF_MVC_CORE_SUB_CHANGE_LOG 1
+#endif
+#ifndef STDF_MVC_CORE_ASYNC_INIT_LOG
+#define STDF_MVC_CORE_ASYNC_INIT_LOG 1
+#endif
+#if STDF_MVC_MAX_SUBS_PER_SUBJECT < 1 || STDF_MVC_MAX_SUBS_PER_SUBJECT > 65535
+#error "STDF_MVC_MAX_SUBS_PER_SUBJECT must be in 1..65535"
+#endif
+#endif

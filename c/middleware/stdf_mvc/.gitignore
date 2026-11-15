@@ -1,0 +1,3 @@
+# Keep framework source directories despite the repository's core-dump pattern.
+!mvc/core/
+!mvc/core/**
