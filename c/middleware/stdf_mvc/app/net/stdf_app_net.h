@@ -6,7 +6,10 @@
 extern "C" {
 #endif
 
+/* Start network sampling; return zero on success. */
 int stdf_app_net_init(void);
+/* Stop and join network sampling. */
+void stdf_app_net_deinit(void);
 
 #ifdef __cplusplus
 }

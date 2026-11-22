@@ -27,9 +27,12 @@ target_include_directories(stdf_mvc PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/mvc
 target_compile_definitions(stdf_mvc PUBLIC _POSIX_C_SOURCE=200809L)
 target_link_libraries(stdf_mvc PUBLIC Threads::Threads)
 add_executable(stdf_mvc_demo main.c
-    app/stdf_app.c app/dm/stdf_app_dm_temperature.c
+    app/stdf_app.c
+    app/dm/stdf_app_dm_cpu.c app/dm/stdf_app_dm_mem.c
+    app/dm/stdf_app_dm_device_info.c app/dm/stdf_app_dm_power.c
+    app/dm/stdf_app_dm_storage.c
     app/net/stdf_app_net.c app/camera/stdf_app_camera.c
-    app/ui/stdf_app_ui.c app/ui/stdf_app_ui_print.c)
+    app/ui/stdf_app_ui.c app/ui/stdf_app_ui_print.c app/ui/stdf_app_ui_status.c)
 target_include_directories(stdf_mvc_demo PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(stdf_mvc_demo PRIVATE stdf_mvc)
 if(STDF_MVC_ENABLE_SDL2 AND SDL2_FOUND)

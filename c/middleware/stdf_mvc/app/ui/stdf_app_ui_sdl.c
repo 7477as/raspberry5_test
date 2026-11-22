@@ -1,245 +1,215 @@
-/* stdf_app_ui_sdl - SDL2 图形 UI（温度条 + 数值显示） */
-
+/* SDL system dashboard; all rendering and callbacks run in the main loop. */
 #include "stdf_app_ui_sdl.h"
+#include "stdf_app_ui_status.h"
 #include "app/stdf_app.h"
-#include "util/stdf_mvc_log.h"
-#include "stdf_mvc_api.h"
-#include "subsystem/dm/stdf_mvc_data_dm.h"
+#include "app/stdf_app_sampler.h"
 #include <SDL2/SDL.h>
-#include <stdatomic.h>
-#include <stddef.h>
-#include <stdbool.h>
-#include <stdint.h>
-#include <stdio.h>
+#include <ctype.h>
+#include <string.h>
 
-#define SDL_WIN_W       800
-#define SDL_WIN_H       480
-#define TEMP_MAX_C      90.0f
-#define TEMP_BAR_X      50
-#define TEMP_BAR_Y      140
-#define TEMP_BAR_W      700
-#define TEMP_BAR_H      60
-#define TEXT_SCALE      5
-#define CHAR_W          6
-#define CHAR_H          7
+#define WINDOW_WIDTH 1280
+#define WINDOW_HEIGHT 620
+#define ROW_HEIGHT 20
+#define PAGE_ROWS 18u
+#define BAR_HEIGHT 6
+#define BAR_GAP 10
 
-static SDL_Window   *s_win = NULL;
-static SDL_Renderer *s_ren = NULL;
-static atomic_int    s_dirty = 0;
-static _Atomic float s_last_temp_c = -273.15f;
-static void render_temperature(float temperature_c);
+static SDL_Window *g_window;
+static SDL_Renderer *g_renderer;
+static stdf_app_ui_status_t g_status[STDF_UI_GROUPS];
+static bool g_subscribed[STDF_UI_GROUPS];
+static unsigned g_page;
+static unsigned g_scroll;
+static uint64_t g_last_render;
+static bool g_dirty;
 
-/* 5x7 字体（每列 1 字节，bit0 = 顶行） */
-static const uint8_t s_font_5x7[][5] = {
-    {0x3E, 0x51, 0x49, 0x45, 0x3E}, /* 0 */
-    {0x00, 0x42, 0x7F, 0x40, 0x00}, /* 1 */
-    {0x42, 0x61, 0x51, 0x49, 0x46}, /* 2 */
-    {0x21, 0x41, 0x45, 0x4B, 0x31}, /* 3 */
-    {0x18, 0x14, 0x12, 0x7F, 0x10}, /* 4 */
-    {0x27, 0x45, 0x45, 0x45, 0x39}, /* 5 */
-    {0x3C, 0x4A, 0x49, 0x49, 0x30}, /* 6 */
-    {0x01, 0x71, 0x09, 0x05, 0x03}, /* 7 */
-    {0x36, 0x49, 0x49, 0x49, 0x36}, /* 8 */
-    {0x06, 0x49, 0x49, 0x29, 0x1E}, /* 9 */
-    {0x00, 0x60, 0x60, 0x00, 0x00}, /* . */
-    {0x00, 0x00, 0x00, 0x00, 0x00}, /* space */
-    {0x3E, 0x41, 0x41, 0x41, 0x22}, /* C */
-    {0x08, 0x14, 0x14, 0x22, 0x22}, /* - */
-    {0x63, 0x13, 0x08, 0x64, 0x63}, /* % */
+static const uint8_t g_digits[10][5] = {
+    {0x3e,0x51,0x49,0x45,0x3e},{0,0x42,0x7f,0x40,0},
+    {0x42,0x61,0x51,0x49,0x46},{0x21,0x41,0x45,0x4b,0x31},
+    {0x18,0x14,0x12,0x7f,0x10},{0x27,0x45,0x45,0x45,0x39},
+    {0x3c,0x4a,0x49,0x49,0x30},{1,0x71,9,5,3},
+    {0x36,0x49,0x49,0x49,0x36},{6,0x49,0x49,0x29,0x1e}
+};
+static const uint8_t g_letters[26][5] = {
+    {0x7e,0x11,0x11,0x11,0x7e},{0x7f,0x49,0x49,0x49,0x36},
+    {0x3e,0x41,0x41,0x41,0x22},{0x7f,0x41,0x41,0x22,0x1c},
+    {0x7f,0x49,0x49,0x49,0x41},{0x7f,9,9,9,1},
+    {0x3e,0x41,0x49,0x49,0x7a},{0x7f,8,8,8,0x7f},
+    {0,0x41,0x7f,0x41,0},{0x20,0x40,0x41,0x3f,1},
+    {0x7f,8,0x14,0x22,0x41},{0x7f,0x40,0x40,0x40,0x40},
+    {0x7f,2,0x0c,2,0x7f},{0x7f,4,8,0x10,0x7f},
+    {0x3e,0x41,0x41,0x41,0x3e},{0x7f,9,9,9,6},
+    {0x3e,0x41,0x51,0x21,0x5e},{0x7f,9,0x19,0x29,0x46},
+    {0x46,0x49,0x49,0x49,0x31},{1,1,0x7f,1,1},
+    {0x3f,0x40,0x40,0x40,0x3f},{0x1f,0x20,0x40,0x20,0x1f},
+    {0x3f,0x40,0x38,0x40,0x3f},{0x63,0x14,8,0x14,0x63},
+    {7,8,0x70,8,7},{0x61,0x51,0x49,0x45,0x43}
 };
 
-static int font_index(char c)
+static void glyph_bits(unsigned char character, uint8_t bits[5])
 {
-    if (c >= '0' && c <= '9') return c - '0';
-    if (c == '.') return 10;
-    if (c == ' ') return 11;
-    if (c == 'C') return 12;
-    if (c == '-') return 13;
-    if (c == '%') return 14;
-    return 11;
+    memset(bits, 0, 5);
+    unsigned char upper = (unsigned char)toupper(character);
+    if (upper >= 'A' && upper <= 'Z') { memcpy(bits, g_letters[upper - 'A'], 5); return; }
+    if (upper >= '0' && upper <= '9') { memcpy(bits, g_digits[upper - '0'], 5); return; }
+    switch (character) {
+    case ' ': break;
+    case '.': bits[2] = 0x60; break;
+    case ':': bits[2] = 0x36; break;
+    case '-': memset(bits, 8, 5); break;
+    case '_': memset(bits, 0x40, 5); break;
+    case '/': bits[0]=0x40; bits[1]=0x20; bits[2]=0x10; bits[3]=8; bits[4]=4; break;
+    case '|': bits[2]=0x7f; break;
+    case '%': bits[0]=0x63; bits[1]=0x13; bits[2]=8; bits[3]=0x64; bits[4]=0x63; break;
+    case '(': bits[2]=0x3e; bits[3]=0x41; break;
+    case ')': bits[1]=0x41; bits[2]=0x3e; break;
+    case '+': bits[1]=8; bits[2]=0x3e; bits[3]=8; break;
+    case '=': memset(bits, 0x14, 5); break;
+    default: bits[0]=2; bits[1]=1; bits[2]=0x51; bits[3]=9; bits[4]=6; break;
+    }
 }
 
-static void draw_char(int x, int y, char c, uint8_t r, uint8_t g, uint8_t b)
+static void draw_text(int x, int y, const char *text, SDL_Color color)
 {
-    const uint8_t *bits = s_font_5x7[font_index(c)];
-    SDL_SetRenderDrawColor(s_ren, r, g, b, 255);
-    for (int col = 0; col < 5; col++) {
-        for (int row = 0; row < 7; row++) {
-            if (bits[col] & (1u << row)) {
-                SDL_Rect px = {
-                    x + col * TEXT_SCALE,
-                    y + row * TEXT_SCALE,
-                    TEXT_SCALE,
-                    TEXT_SCALE,
-                };
-                SDL_RenderFillRect(s_ren, &px);
+    SDL_SetRenderDrawColor(g_renderer, color.r, color.g, color.b, 255);
+    for (unsigned offset = 0; text[offset] && x + 10 < WINDOW_WIDTH - 20; offset++, x += 12) {
+        uint8_t bits[5];
+        glyph_bits((unsigned char)text[offset], bits);
+        for (unsigned column = 0; column < 5; column++) {
+            for (unsigned row = 0; row < 7; row++) {
+                if (!(bits[column] & (1u << row))) continue;
+                SDL_Rect pixel = { x + (int)column * 2, y + (int)row * 2, 2, 2 };
+                SDL_RenderFillRect(g_renderer, &pixel);
             }
         }
     }
 }
 
-static void draw_text(int x, int y, const char *text, uint8_t r, uint8_t g, uint8_t b)
+static void on_status(stdf_mvc_publisher_t publisher, stdf_mvc_subject_id_t subject,
+                      const void *payload)
 {
-    int cx = x;
-    while (*text) {
-        draw_char(cx, y, *text, r, g, b);
-        cx += CHAR_W * TEXT_SCALE;
-        text++;
+    (void)publisher;
+    if (!payload) return;
+    for (unsigned group = 0; group < STDF_UI_GROUPS; group++) {
+        if (subject != g_ui_subjects[group]) continue;
+        stdf_app_ui_status_format(group, payload, &g_status[group]);
+        g_dirty = true;
     }
 }
 
-static int text_pixel_width(const char *text)
+static int draw_group(unsigned group, int y, unsigned first, unsigned count, uint64_t now)
 {
-    int n = 0;
-    while (text[n]) n++;
-    return n * CHAR_W * TEXT_SCALE;
+    SDL_Color heading = { 90, 190, 240, 255 };
+    SDL_Color body = { 220, 225, 230, 255 };
+    char title[80];
+    snprintf(title, sizeof(title), "%s%s", g_ui_titles[group],
+             stdf_app_ui_status_stale(group, g_status[group].timestamp_ms, now) ? " [STALE]" : "");
+    draw_text(24, y, title, heading);
+    y += ROW_HEIGHT + 4;
+    if (!g_status[group].count) {
+        draw_text(36, y, "Waiting for sample...", body);
+        return y + ROW_HEIGHT + 12;
+    }
+    for (unsigned row = first; row < g_status[group].count && row < first + count; row++) {
+        draw_text(36, y, g_status[group].lines[row], body);
+        y += ROW_HEIGHT;
+    }
+    if ((group == 0 || group == 1 || group == 5) && g_status[group].bar_percent >= 0) {
+        SDL_Rect background = {36, y + BAR_GAP, WINDOW_WIDTH - 72, BAR_HEIGHT};
+        SDL_SetRenderDrawColor(g_renderer, 50, 60, 70, 255);
+        SDL_RenderFillRect(g_renderer, &background);
+        float percent = g_status[group].bar_percent;
+        if (percent > 100) percent = 100;
+        SDL_Rect fill = {36, y + BAR_GAP, (int)((WINDOW_WIDTH - 72) * percent / 100), BAR_HEIGHT};
+        SDL_SetRenderDrawColor(g_renderer, percent > 80 ? 235 : 70, 165, 90, 255);
+        SDL_RenderFillRect(g_renderer, &fill);
+        y += BAR_GAP + BAR_HEIGHT;
+    }
+    return y + 14;
 }
 
-static void on_temperature(stdf_mvc_publisher_t publisher,
-                           stdf_mvc_subject_id_t subject_id,
-                           const void           *payload)
+static void render_dashboard(uint64_t now)
 {
-    (void)subject_id;
-    (void)publisher;
-    if (!payload) return;
-
-    const stdf_mvc_dm_temperature_t *sample = payload;
-    s_last_temp_c = sample->value_c;
-    atomic_store(&s_dirty, 1);
-    render_temperature(sample->value_c);
-}
-
-static uint8_t temp_color_r(float c)
-{
-    if (c < 30.0f) return 50u;
-    if (c < 50.0f) return 50u;
-    if (c < 70.0f) return 230u;
-    return 220u;
-}
-
-static uint8_t temp_color_g(float c)
-{
-    if (c < 30.0f) return 100u;
-    if (c < 50.0f) return 200u;
-    if (c < 70.0f) return 200u;
-    return 50u;
-}
-
-static uint8_t temp_color_b(float c)
-{
-    if (c < 30.0f) return 200u;
-    if (c < 50.0f) return 50u;
-    if (c < 70.0f) return 50u;
-    return 50u;
+    SDL_SetRenderDrawColor(g_renderer, 19, 25, 34, 255);
+    SDL_RenderClear(g_renderer);
+    SDL_Color white = {235, 240, 245, 255};
+    draw_text(24, 16, "RASPBERRY PI SYSTEM STATUS", white);
+    draw_text(24, 42, "1 OVERVIEW | 2 NETWORK | 3 POWER | 4 STORAGE | UP/DOWN SCROLL | ESC QUIT", white);
+    if (g_page == 0) {
+        int y = draw_group(0, 78, 0, 1, now);
+        y = draw_group(1, y, 0, 1, now);
+        y = draw_group(5, y, 0, 1, now);
+        y = draw_group(4, y, 0, 2, now);
+        y = draw_group(3, y, 0, 1, now);
+        draw_group(2, y, 0, 3, now);
+    } else {
+        unsigned group = g_page == 1 ? 4 : (g_page == 2 ? 3 : 5);
+        unsigned maximum = g_status[group].count > PAGE_ROWS ? g_status[group].count - PAGE_ROWS : 0;
+        if (g_scroll > maximum) g_scroll = maximum;
+        draw_group(group, 78, g_scroll, PAGE_ROWS, now);
+        char position[80];
+        snprintf(position, sizeof(position), "ROW %u / %u", g_scroll + 1, g_status[group].count);
+        draw_text(24, WINDOW_HEIGHT - 30, position, white);
+    }
+    SDL_RenderPresent(g_renderer);
 }
 
 int stdf_app_ui_sdl_init(void)
 {
-    if (SDL_Init(SDL_INIT_VIDEO) < 0) {
-        STDF_MVC_LOG_E_TAG("[UI-SDL]", "SDL_Init failed: %s", SDL_GetError());
-        return -1;
+    memset(g_status, 0, sizeof(g_status));
+    g_page = 0; g_scroll = 0; g_last_render = 0; g_dirty = true;
+    if (SDL_Init(SDL_INIT_VIDEO) < 0) return -1;
+    g_window = SDL_CreateWindow("stdf_mvc system status", SDL_WINDOWPOS_CENTERED,
+                                SDL_WINDOWPOS_CENTERED, WINDOW_WIDTH, WINDOW_HEIGHT,
+                                SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
+    if (!g_window) { stdf_app_ui_sdl_deinit(); return -1; }
+    g_renderer = SDL_CreateRenderer(g_window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    if (!g_renderer) g_renderer = SDL_CreateRenderer(g_window, -1, SDL_RENDERER_SOFTWARE);
+    if (!g_renderer) { stdf_app_ui_sdl_deinit(); return -1; }
+    SDL_RenderSetLogicalSize(g_renderer, WINDOW_WIDTH, WINDOW_HEIGHT);
+    for (unsigned group = 0; group < STDF_UI_GROUPS; group++) {
+        int result = stdf_mvc_api_subscribe(STDF_MVC_LOCAL, g_ui_subjects[group], on_status);
+        if (result != 0) { stdf_app_ui_sdl_deinit(); return result; }
+        g_subscribed[group] = true;
     }
-
-    s_win = SDL_CreateWindow("stdf_mvc temperature",
-                              SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-                              SDL_WIN_W, SDL_WIN_H,
-                              SDL_WINDOW_SHOWN);
-    if (!s_win) {
-        STDF_MVC_LOG_E_TAG("[UI-SDL]", "SDL_CreateWindow failed: %s", SDL_GetError());
-        SDL_Quit();
-        return -1;
-    }
-
-    s_ren = SDL_CreateRenderer(s_win, -1,
-                                SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
-    if (!s_ren) {
-        STDF_MVC_LOG_E_TAG("[UI-SDL]", "SDL_CreateRenderer failed: %s", SDL_GetError());
-        SDL_DestroyWindow(s_win);
-        s_win = NULL;
-        SDL_Quit();
-        return -1;
-    }
-
-    SDL_SetRenderDrawColor(s_ren, 20, 20, 30, 255);
-    SDL_RenderClear(s_ren);
-
-    int rc = stdf_mvc_api_subscribe(STDF_MVC_LOCAL,
-                                     STDF_MVC_SUBJECT_DM_TEMPERATURE,
-                                     on_temperature);
-    if (rc != 0) {
-        STDF_MVC_LOG_W_TAG("[UI-SDL]", "subscribe failed: %d", rc);
-        return rc;
-    }
-
-    STDF_MVC_LOG_I_TAG("[UI-SDL]", "%s", "init ok");
     return 0;
 }
 
-static void render_temperature(float temperature_c)
+void stdf_app_ui_sdl_poll(void)
 {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
-        if (event.type == SDL_QUIT ||
-            (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_ESCAPE)) {
-            g_running = 0;
-            return;
+        if (event.type == SDL_QUIT) g_running = 0;
+        if (event.type == SDL_KEYDOWN) {
+            SDL_Keycode key = event.key.keysym.sym;
+            if (key == SDLK_ESCAPE) g_running = 0;
+            if (key >= SDLK_1 && key <= SDLK_4) { g_page = (unsigned)(key - SDLK_1); g_scroll = 0; }
+            if (key == SDLK_DOWN) g_scroll++;
+            if (key == SDLK_UP && g_scroll) g_scroll--;
         }
+        if (event.type == SDL_MOUSEWHEEL) {
+            if (event.wheel.y < 0) g_scroll++;
+            else if (event.wheel.y > 0 && g_scroll) g_scroll--;
+        }
+        g_dirty = true;
     }
-
-    if (!atomic_exchange(&s_dirty, 0)) return;
-
-    SDL_SetRenderDrawColor(s_ren, 20, 20, 30, 255);
-    SDL_RenderClear(s_ren);
-
-    float render_temp = temperature_c;
-    if (render_temp < -200.0f) render_temp = 0.0f;
-    if (render_temp < 0.0f) render_temp = 0.0f;
-    if (render_temp > TEMP_MAX_C) render_temp = TEMP_MAX_C;
-
-    char temp_text[16];
-    snprintf(temp_text, sizeof(temp_text), "%4.1f C", (double)render_temp);
-    int text_w = text_pixel_width(temp_text);
-    int text_x = (SDL_WIN_W - text_w) / 2;
-    int text_y = 40;
-    draw_text(text_x, text_y, temp_text, 240, 240, 240);
-
-    char min_max_text[32];
-    snprintf(min_max_text, sizeof(min_max_text), "0.0 C  -  %.0f C", (double)TEMP_MAX_C);
-    int label_y = text_y + CHAR_H * TEXT_SCALE + 12;
-    draw_text(TEMP_BAR_X, label_y, min_max_text, 140, 140, 160);
-
-    SDL_SetRenderDrawColor(s_ren, 60, 60, 80, 255);
-    SDL_Rect bg = { TEMP_BAR_X - 2, TEMP_BAR_Y - 2, TEMP_BAR_W + 4, TEMP_BAR_H + 4 };
-    SDL_RenderFillRect(s_ren, &bg);
-
-    SDL_SetRenderDrawColor(s_ren, 40, 40, 50, 255);
-    SDL_Rect bar_bg = { TEMP_BAR_X, TEMP_BAR_Y, TEMP_BAR_W, TEMP_BAR_H };
-    SDL_RenderFillRect(s_ren, &bar_bg);
-
-    float ratio = render_temp / TEMP_MAX_C;
-    uint16_t fill_w = (uint16_t)(ratio * TEMP_BAR_W);
-    if (fill_w > 0) {
-        SDL_SetRenderDrawColor(s_ren,
-                               temp_color_r(render_temp),
-                               temp_color_g(render_temp),
-                               temp_color_b(render_temp),
-                               255);
-        SDL_Rect fill = { TEMP_BAR_X, TEMP_BAR_Y, fill_w, TEMP_BAR_H };
-        SDL_RenderFillRect(s_ren, &fill);
+    uint64_t now = stdf_app_now_ms();
+    if (g_dirty || now - g_last_render >= 1000u) {
+        render_dashboard(now);
+        g_last_render = now;
+        g_dirty = false;
     }
-
-    SDL_SetRenderDrawColor(s_ren, 80, 80, 100, 255);
-    SDL_Rect footer = { 0, SDL_WIN_H - 40, SDL_WIN_W, 40 };
-    SDL_RenderFillRect(s_ren, &footer);
-    draw_text(20, SDL_WIN_H - 30, "ESC quit", 200, 200, 200);
-
-    SDL_RenderPresent(s_ren);
 }
 
 void stdf_app_ui_sdl_deinit(void)
 {
-    if (s_ren) { SDL_DestroyRenderer(s_ren); s_ren = NULL; }
-    if (s_win) { SDL_DestroyWindow(s_win); s_win = NULL; }
+    for (unsigned group = 0; group < STDF_UI_GROUPS; group++) {
+        if (g_subscribed[group])
+            stdf_mvc_api_unsubscribe(STDF_MVC_LOCAL, g_ui_subjects[group], on_status);
+        g_subscribed[group] = false;
+    }
+    if (g_renderer) SDL_DestroyRenderer(g_renderer);
+    if (g_window) SDL_DestroyWindow(g_window);
+    g_renderer = NULL; g_window = NULL;
     SDL_Quit();
-    STDF_MVC_LOG_I_TAG("[UI-SDL]", "%s", "deinit ok");
 }

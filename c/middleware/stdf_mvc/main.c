@@ -1,5 +1,6 @@
 /* stdf_mvc demonstration entry point. */
 #include "app/stdf_app.h"
+#include "app/ui/stdf_app_ui.h"
 #include "mvc/stdf_mvc.h"
 #include "mvc/core/stdf_mvc_core_async.h"
 
@@ -26,6 +27,7 @@ int main(void)
         const struct timespec delay = { .tv_sec = 0, .tv_nsec = 10000000L };
         while (g_running) {
             stdf_mvc_core_async_poll();
+            stdf_app_ui_poll();
             nanosleep(&delay, NULL);
         }
         result = 0;
